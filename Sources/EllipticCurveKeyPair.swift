@@ -113,23 +113,23 @@ public enum EllipticCurveKeyPair {
         
         /* Gevin added: */
         public func privateKeyDER() throws -> Data{
-            return try self.helper.exportDER( privateKey: cachedPrivateKey!)
+            return try self.helper.exportDER( privateKey: self.privateKey())
         }
         
         /* Gevin added: */
         public func publicKeyDER() throws -> Data{
-            return try self.helper.exportDER( publicKey: cachedPublicKey!)
+            return try self.helper.exportDER( publicKey: self.publicKey())
         }
         
         /* Gevin added */
         public func privateKeyPEM() throws -> String {
-            let privateKeyPEM = try self.helper.exportPEM(privateKey: cachedPrivateKey!)
+            let privateKeyPEM = try self.helper.exportPEM(privateKey: self.privateKey())
             return privateKeyPEM
         }
         
         /* Gevin added */
         public func publicKeyPEM() throws -> String {
-            let publicKeyPEM = try self.helper.exportPEM(publicKey: cachedPublicKey!)
+            let publicKeyPEM = try self.helper.exportPEM(publicKey: self.publicKey() )
             return publicKeyPEM
         }
         
