@@ -27,25 +27,21 @@ import LocalAuthentication
 import EllipticCurveKeyPair
 
 class EncryptionViewController: UIViewController {
-    
-    struct Shared {
-        
-        static let keypair: EllipticCurveKeyPair.Manager = {
-            EllipticCurveKeyPair.logger = { print($0) }
-            let publicAccessControl = EllipticCurveKeyPair.AccessControl(protection: kSecAttrAccessibleAlwaysThisDeviceOnly, flags: [])
-            let privateAccessControl = EllipticCurveKeyPair.AccessControl(protection: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly, flags: {
-                return EllipticCurveKeyPair.Device.hasSecureEnclave ? [.userPresence, .privateKeyUsage] : [.userPresence]
-            }())
-            let config = EllipticCurveKeyPair.Config(
-                publicLabel: "no.agens.encrypt.public",
-                privateLabel: "no.agens.encrypt.private",
-                operationPrompt: "Decrypt",
-                publicKeyAccessControl: publicAccessControl,
-                privateKeyAccessControl: privateAccessControl,
-                token: .secureEnclaveIfAvailable)
-            return EllipticCurveKeyPair.Manager(config: config)
-        }()
-    }
+    lazy var keypair: EllipticCurveKeyPair.Manager = {
+        EllipticCurveKeyPair.logger = { print($0) }
+        let publicAccessControl = EllipticCurveKeyPair.AccessControl(protection: kSecAttrAccessibleAlwaysThisDeviceOnly, flags: [])
+        let privateAccessControl = EllipticCurveKeyPair.AccessControl(protection: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly, flags: {
+            return EllipticCurveKeyPair.Device.hasSecureEnclave ? [.userPresence, .privateKeyUsage] : [.userPresence]
+        }())
+        let config = EllipticCurveKeyPair.Config(
+            publicLabel: "no.agens.encrypt.public",
+            privateLabel: "no.agens.encrypt.private",
+            operationPrompt: "Decrypt",
+            publicKeyAccessControl: publicAccessControl,
+            privateKeyAccessControl: privateAccessControl,
+            token: .secureEnclaveIfAvailable)
+        return EllipticCurveKeyPair.Manager(config: config)
+    }()
     
     var context: LAContext! = LAContext()
     var decrypted = true
@@ -90,12 +86,12 @@ class EncryptionViewController: UIViewController {
     
     override func viewDidLoad() {
         super.viewDidLoad()
-            
-        state = .decrypted("Lorem ipsum dolor sit er elit lamet")
+        
+        state = .decrypted("Hi aloha")
         
         do {
-            let key = try Shared.keypair.publicKey().data()
-            publicKeyTextView.text = key.PEM
+            try self.keypair.generateKeyPair(context: context)
+            publicKeyTextView.text = try keypair.publicKeyPEM()
         } catch {
             publicKeyTextView.text = "Error: \(error)"
         }
@@ -104,9 +100,8 @@ class EncryptionViewController: UIViewController {
     @IBAction func regeneratePublicKey(_ sender: Any) {
         context = LAContext()
         do {
-            try Shared.keypair.deleteKeyPair()
-            let key = try Shared.keypair.publicKey().data()
-            publicKeyTextView.text = key.PEM
+            try keypair.deleteKeyPair()
+            publicKeyTextView.text = try keypair.publicKeyPEM()
         } catch {
             publicKeyTextView.text = "Error: \(error)"
         }
@@ -132,7 +127,8 @@ class EncryptionViewController: UIViewController {
             guard #available(iOS 10.3, *) else {
                 throw "Can not encrypt on this device (must be iOS 10.3)"
             }
-            let result = try Shared.keypair.encrypt(input)
+            let result = try keypair.encrypt(input)
+            print("encrypte:\n\(result.base64EncodedString())")
             state = .encrypted(result.base64EncodedString())
         } catch {
             state = .error(error)
@@ -155,7 +151,7 @@ class EncryptionViewController: UIViewController {
             guard #available(iOS 10.3, *) else {
                 throw "Can not encrypt on this device (must be iOS 10.3)"
             }
-            let result = try Shared.keypair.decrypt(encrypted, hash: .sha256, context: self.context)
+            let result = try self.keypair.decrypt(encrypted, hash: .sha256, context: self.context)
             guard let decrypted = String(data: result, encoding: .utf8) else {
                 throw "Could not convert decrypted data to string"
             }

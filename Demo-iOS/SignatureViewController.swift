@@ -28,23 +28,21 @@ import EllipticCurveKeyPair
 
 class SignatureViewController: UIViewController {
     
-    struct Shared {
-        static let keypair: EllipticCurveKeyPair.Manager = {
-            EllipticCurveKeyPair.logger = { print($0) }
-            let publicAccessControl = EllipticCurveKeyPair.AccessControl(protection: kSecAttrAccessibleAlwaysThisDeviceOnly, flags: [])
-            let privateAccessControl = EllipticCurveKeyPair.AccessControl(protection: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly, flags: {
-                return EllipticCurveKeyPair.Device.hasSecureEnclave ? [.userPresence, .privateKeyUsage] : [.userPresence]
-            }())
-            let config = EllipticCurveKeyPair.Config(
-                publicLabel: "no.agens.sign.public",
-                privateLabel: "no.agens.sign.private",
-                operationPrompt: "Sign transaction",
-                publicKeyAccessControl: publicAccessControl,
-                privateKeyAccessControl: privateAccessControl,
-                token: .secureEnclaveIfAvailable)
-            return EllipticCurveKeyPair.Manager(config: config)
-        }()
-    }
+    lazy var keypair: EllipticCurveKeyPair.Manager = {
+        EllipticCurveKeyPair.logger = { print($0) }
+        let publicAccessControl = EllipticCurveKeyPair.AccessControl(protection: kSecAttrAccessibleAlwaysThisDeviceOnly, flags: [])
+        let privateAccessControl = EllipticCurveKeyPair.AccessControl(protection: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly, flags: {
+            return EllipticCurveKeyPair.Device.hasSecureEnclave ? [.userPresence, .privateKeyUsage] : [.userPresence]
+        }())
+        let config = EllipticCurveKeyPair.Config(
+            publicLabel: "wacare.sign.public",
+            privateLabel: "wacare.sign.private",
+            operationPrompt: "Sign transaction",
+            publicKeyAccessControl: publicAccessControl,
+            privateKeyAccessControl: privateAccessControl,
+            token: .secureEnclaveIfAvailable)
+        return EllipticCurveKeyPair.Manager(config: config)
+    }()
     
     var context: LAContext! = LAContext()
     
@@ -56,8 +54,24 @@ class SignatureViewController: UIViewController {
         super.viewDidLoad()
         
         do {
-            let key = try Shared.keypair.publicKey().data()
-            publicKeyTextView.text = key.PEM
+            // public ECC
+            let publicKey = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEV+PBO2YXn+WPiRmipqOtjAaNYfQqtCuNgZyMFaXAlCUmnVUM7jpsYsyrrSBcetLm4QYtIANERp6PlOh6Uy9Ylg=="
+            // private ECC
+            let privateKey = "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgnszUJEAiYjU0qrbXp8Y/p7OwqC83HXvBTHo7Yluh4i2hRANCAARX48E7Zhef5Y+JGaKmo62MBo1h9Cq0K42BnIwVpcCUJSadVQzuOmxizKutIFx60ubhBi0gA0RGno+U6HpTL1iW"
+
+            // import exist key 
+            try keypair.importPrivateKeyB64(privateKey)
+            try keypair.importPublicKeyB64(publicKey)
+            
+            let privateKeyData = try keypair.privateKeyDER()
+            let publicKeyData = try keypair.publicKeyDER()
+            let privateKeyPem = try keypair.privateKeyPEM()
+            let publicKeyPem = try keypair.publicKeyPEM()
+            let private_data: String = GTMBase64.string(byEncoding: privateKeyData)
+            let public_data: String = GTMBase64.string(byEncoding: publicKeyData)
+            print("private key:\n\(private_data)")
+            print("public key:\n\(public_data)")
+            publicKeyTextView.text = "\(privateKeyPem)\n\n\(publicKeyPem)"
         } catch {
             publicKeyTextView.text = "Error: \(error)"
         }
@@ -66,9 +80,8 @@ class SignatureViewController: UIViewController {
     @IBAction func regeneratePublicKey(_ sender: Any) {
         context = LAContext()
         do {
-            try Shared.keypair.deleteKeyPair()
-            let key = try Shared.keypair.publicKey().data()
-            publicKeyTextView.text = key.PEM
+            try keypair.deleteKeyPair()
+            publicKeyTextView.text = try keypair.publicKeyPEM()
         } catch {
             publicKeyTextView.text = "Error: \(error)"
         }
@@ -95,13 +108,16 @@ class SignatureViewController: UIViewController {
             }
             return digest
         }, thenAsync: { digest in
-            return try Shared.keypair.signUsingSha256(digest, context: self.context)
+            return try self.keypair.signUsingSha256(digest, context: self.context)            
         }, thenOnMain: { digest, signature in
-            self.signatureTextView.text = signature.base64EncodedString()
-            try Shared.keypair.verifyUsingSha256(signature: signature, originalDigest: digest)
-            try printVerifySignatureInOpenssl(manager: Shared.keypair, signed: signature, digest: digest, hashAlgorithm: "sha256")
+            let sign_b64 = signature.base64EncodedString()
+            print("sign: \(sign_b64)")
+            self.signatureTextView.text = sign_b64 
+            try self.keypair.verifyUsingSha256(signature: signature, originalDigest: digest)
+            try printVerifySignatureInOpenssl(manager: self.keypair, signed: signature, digest: digest, hashAlgorithm: "sha256")
         }, catchToMain: { error in
             self.signatureTextView.text = "Error: \(error)"
+            
         })
     }
     

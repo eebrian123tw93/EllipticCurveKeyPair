@@ -99,6 +99,47 @@ public enum EllipticCurveKeyPair {
             self.helper = Helper(config: config)
         }
         
+        /* Gevin added: */
+        public func importPrivateKeyB64(_ privateKeyB64: String ) throws{
+            try self.helper.importKeyBase64(privateKeyB64: privateKeyB64 )
+            try cachedPrivateKey = self.helper.getPrivateKey()
+        }
+        
+        /* Gevin added: */
+        public func importPublicKeyB64(_ publicKeyB64: String ) throws{
+            try self.helper.importKeyBase64(publicKeyB64: publicKeyB64 )
+            try cachedPublicKey = self.helper.getPublicKey()
+        }
+        
+        /* Gevin added: */
+        public func privateKeyDER() throws -> Data{
+            return try self.helper.exportDER( privateKey: cachedPrivateKey!)
+        }
+        
+        /* Gevin added: */
+        public func publicKeyDER() throws -> Data{
+            return try self.helper.exportDER( publicKey: cachedPublicKey!)
+        }
+        
+        /* Gevin added */
+        public func privateKeyPEM() throws -> String {
+            let privateKeyPEM = try self.helper.exportPEM(privateKey: cachedPrivateKey!)
+            return privateKeyPEM
+        }
+        
+        /* Gevin added */
+        public func publicKeyPEM() throws -> String {
+            let publicKeyPEM = try self.helper.exportPEM(publicKey: cachedPublicKey!)
+            return publicKeyPEM
+        }
+        
+        /* Gevin added: */
+        public func generateKeyPair(context: LAContext? = nil) throws{
+            let keys = try helper.generateKeyPair(context: context)
+            cachedPublicKey = keys.public
+            cachedPrivateKey = keys.private
+        }
+        
         public func deleteKeyPair() throws {
             clearCache()
             try helper.delete()
@@ -112,8 +153,8 @@ public enum EllipticCurveKeyPair {
                 let key = try helper.getPublicKey()
                 cachedPublicKey = key
                 return key
-            } catch EllipticCurveKeyPair.Error.underlying(_, let underlying) where underlying.code == errSecItemNotFound {
-                let keys = try helper.generateKeyPair()
+            }catch EllipticCurveKeyPair.Error.underlying(_, let underlying) where underlying.code == errSecItemNotFound {
+                let keys = try self.helper.generateKeyPair()
                 cachedPublicKey = keys.public
                 cachedPrivateKey = keys.private
                 return keys.public
@@ -204,19 +245,260 @@ public enum EllipticCurveKeyPair {
     // `Manager` is an example of such an opiniated facade
     public struct Helper {
         
+        
+        // The open ssl compatible DER format X.509
+        //
+        // We take the raw key and prepend an ASN.1 headers to it. The end result is an
+        // ASN.1 SubjectPublicKeyInfo structure, which is what OpenSSL is looking for.
+        //
+        // See the following DevForums post for more details on this.
+        // https://forums.developer.apple.com/message/84684#84684
+        //
+        // End result looks like this
+        // https://lapo.it/asn1js/#3059301306072A8648CE3D020106082A8648CE3D030107034200041F4E3F6CD8163BCC14505EBEEC9C30971098A7FA9BFD52237A3BCBBC48009162AAAFCFC871AC4579C0A180D5F207316F74088BF01A31F83E9EBDC029A533525B
+        //
+        // Header 的資料 
+        // https://stackoverflow.com/questions/45131935/export-an-elliptic-curve-key-from-ios-to-work-with-openssl
+        // 
+        // Gevin note: 
+        //   java 那 private key 的格式，跟 rfc5915 定義不一樣，但為了讓兩邊相容，這邊的輸出改為像 java 那樣
+        //   openssl 則是按照 rfc5915 定義的格式
+        //   private key format
+        //   https://tools.ietf.org/html/rfc5915
+        //   ECPrivateKey ::=
+        //   SEQUENCE {
+        //   |-> version INTEGER { ecPrivkeyVer1(1) } (ecPrivkeyVer1),
+        //   |-> privateKey OCTET STRING,
+        //   |-> parameters [0] ECParameters {{ NamedCurve }} OPTIONAL,
+        //   |-> publicKey  [1] BIT STRING OPTIONAL
+        //   }
+        // 
+        //   0 116: SEQUENCE {
+        //   2   1:   INTEGER 1
+        //   5  32:   OCTET STRING
+        //   :     ED 03 E5 18 E6 7A CF FD D4 D6 F7 74 76 3D 77 19
+        //   :     9B 33 B8 15 7F 19 81 DB E3 95 B8 B9 96 31 B1 97
+        //   39   7:   [0] {
+        //   41   5:     OBJECT IDENTIFIER secp256k1 (1 3 132 0 10)
+        //   :     }
+        //   48  68:   [1] {
+        //   50  66:     BIT STRING
+        //   :       04 81 53 44 BA 2A D4 34 21 15 75 FE E7 2D 20 54
+        //   :       81 4D 46 5C BA ED 20 17 A0 94 86 CA E7 8B 3D D4
+        //   :       79 56 28 E2 A3 93 80 A4 27 7F C1 C0 60 1F 71 82
+        //   :       9A F8 38 09 D8 85 10 48 3D 79 2B 54 FF 82 13 3D
+        //   :       79
+        //   :     }
+        //   :   }
+        // tag 的規則， [tag id] [value len] [ value content .... ]
+        public let x9_62PrivateECHeader = [UInt8]([
+        /* sequence           */ 0x30, 0x81, 0x87,
+        /* |-> Integer        */ 0x02, 0x01, 0x00,
+        /* |-> sequence       */ 0x30, 0x13,
+        /* |---> ecPublicKey  */ 0x06, 0x07, 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x02, 0x01, // http://oid-info.com/get/1.2.840.10045.2.1 (ANSI X9.62 public key type)
+        /* |---> prime256v1   */ 0x06, 0x08, 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x03, 0x01, 0x07, // http://oid-info.com/get/1.2.840.10045.3.1.7 (ANSI X9.62 named elliptic curve)
+        /* |-> octet string   */ 0x04, 0x6D,
+        /* |---> sequence     */ 0x30, 0x6B,
+        /* |-----> integer    */ 0x02, 0x01, 0x01,
+        /* |-----> oct string */ 0x04, 0x20                              
+        ])
+        
+        public let x9_62PrivateECHeader_Element = [UInt8]([
+        /* |-----> sub element */ 0xA1, 0x44,
+        /* |-----> bit string  */ 0x03, 0x42, 0x00 ])
+        
+        
+        public let x9_62PublicECHeader = [UInt8]([
+        /* sequence          */ 0x30, 0x59,
+        /* |-> sequence      */ 0x30, 0x13,
+        /* |---> ecPublicKey */ 0x06, 0x07, 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x02, 0x01, // http://oid-info.com/get/1.2.840.10045.2.1 (ANSI X9.62 public key type)
+        /* |---> prime256v1  */ 0x06, 0x08, 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x03, 0x01, 0x07, // http://oid-info.com/get/1.2.840.10045.3.1.7 (ANSI X9.62 named elliptic curve)
+        /* |-> bit headers   */ 0x03, 0x42, 0x00
+        ])
+        
+        
         // The user visible label in the device's key chain
         public let config: Config
         
+        // MARK: - SecKey Manage
+        
+        /* Gevin added */
+        public func importKeyBase64( privateKeyB64: String ) throws{
+
+            let decodedData = Data.init(base64Encoded: privateKeyB64)
+            var result = Data()
+            let privateKeyStart = x9_62PrivateECHeader.count
+            let privateKeyEnd = x9_62PrivateECHeader.count + 32
+            let publicKeyStart = privateKeyEnd + 5
+            let publicKeyEnd = publicKeyStart + 65
+            let private_key_data = decodedData?.subdata(in:privateKeyStart..<privateKeyEnd)
+            
+            let public_key_data = decodedData?.subdata(in:publicKeyStart..<publicKeyEnd)
+            result.append(public_key_data!) 
+            result.append(private_key_data!)
+            
+            // On iOS 10+, we can use SecKeyCreateWithData without going through the keychain
+            if #available(iOS 10.0, *), #available(watchOS 3.0, *), #available(tvOS 10.0, *) {
+                let keyDict: [CFString: Any] = QueryParam.privateKeyCreate(privateKeyData: result)
+                
+                var error: Unmanaged<CFError>?
+                guard let key = SecKeyCreateWithData(result as CFData, keyDict as CFDictionary, &error) else {
+                    let errMsg = "Private key create failed."
+                    guard let err = error else {
+                        throw Error.inconcistency(message: errMsg)
+                    }                    
+                    guard let swifterr = err.takeUnretainedValue() as? Error else {
+                        throw Error.inconcistency(message: errMsg)
+                    }
+                    throw Error.underlying(message: errMsg, error: swifterr as NSError )
+                }
+                try self.forceSaveKey(key, label: config.publicLabel)
+                // On iOS 9 and earlier, add a persistent version of the key to the system keychain
+            } else {
+                
+                let persistKey = UnsafeMutablePointer<AnyObject?>(mutating: nil)
+                let keyAddDict: [CFString: Any] = QueryParam.privateKeyItemAdd(privateLabel: config.privateLabel, keyData: result)
+                let addStatus = SecItemAdd(keyAddDict as CFDictionary, persistKey)
+                guard addStatus == errSecSuccess || addStatus == errSecDuplicateItem else {
+                    throw Error.osStatus(message: "Private key create failed.", osStatus: addStatus)
+                }
+                
+                let keyCopyDict: [CFString: Any] = QueryParam.privateKeyCopy(privateLabel: config.privateLabel) 
+                // Now fetch the SecKeyRef version of the key
+                var keyRef: AnyObject? = nil
+                let copyStatus = SecItemCopyMatching(keyCopyDict as CFDictionary, &keyRef)
+                
+                guard keyRef != nil else {
+                    throw Error.osStatus(message: "Private key copy failed", osStatus: copyStatus)
+                }
+            }
+                
+        }
+        
+        /* Gevin added */
+        public func importKeyBase64( publicKeyB64: String ) throws {
+            
+            let decodedData = Data.init(base64Encoded: publicKeyB64)
+            guard let publicKeyData = decodedData else {
+                throw Error.inconcistency(message: "base64 string decode failed.")
+            } 
+            
+            var result = Data()
+            let publicKeyStart = x9_62PublicECHeader.count
+            let publicKeyEnd = publicKeyData.count
+            let public_key_data = decodedData?.subdata(in:publicKeyStart..<publicKeyEnd)
+            result.append(public_key_data!) 
+            
+            // On iOS 10+, we can use SecKeyCreateWithData without going through the keychain
+            if #available(iOS 10.0, *), #available(watchOS 3.0, *), #available(tvOS 10.0, *) {
+                let keyDict: [CFString: Any] = QueryParam.publicKeyCreate(publicKeyData: result)
+
+                var error: Unmanaged<CFError>?
+                guard let key = SecKeyCreateWithData(result as CFData, keyDict as CFDictionary, &error) else {
+                    let errMsg = "Public key create failed."
+                    guard let err = error else {
+                        throw Error.inconcistency(message: errMsg)
+                    }                    
+                    guard let swifterr = err.takeUnretainedValue() as? Error else {
+                        throw Error.inconcistency(message: errMsg)
+                    }
+                    throw Error.underlying(message: errMsg, error: swifterr as NSError )
+                }
+                try self.forceSaveKey(key, label: config.publicLabel)
+                // On iOS 9 and earlier, add a persistent version of the key to the system keychain
+            } else {
+                
+                let persistKey = UnsafeMutablePointer<AnyObject?>(mutating: nil)
+                let keyAddDict: [CFString: Any] = QueryParam.publicKeyItemAdd(publicLabel: config.publicLabel, keyData: result)
+                
+                let addStatus = SecItemAdd(keyAddDict as CFDictionary, persistKey)
+                guard addStatus == errSecSuccess || addStatus == errSecDuplicateItem else {
+                    throw Error.osStatus(message: "Public key create failed.", osStatus: addStatus)
+                }
+                let keyCopyDict: [CFString: Any] = QueryParam.publicKeyCopy(publicLabel: config.publicLabel)
+                
+                // Now fetch the SecKeyRef version of the key
+                var keyRef: AnyObject? = nil
+                let copyStatus = SecItemCopyMatching(keyCopyDict as CFDictionary, &keyRef)
+                
+                guard keyRef != nil else {
+                    throw Error.osStatus(message: "Public key copy failed", osStatus: copyStatus)
+                }
+            }
+        }
+        
+        /* Gevin added */
+        public func exportDER( privateKey: PrivateKey ) throws -> Data {
+            
+            let rawKeyData = try privateKey.exportData()
+            var result = Data()
+            result.append(Data(x9_62PrivateECHeader))
+            // raw data contains private key data(32) + public key data(65) = 97
+            let private_key_data = rawKeyData.subdata(in:65..<rawKeyData.count)
+            let public_key_data = rawKeyData.subdata(in:0..<65)
+            result.append(private_key_data) 
+            result.append(Data(x9_62PrivateECHeader_Element))
+            result.append(public_key_data)
+            
+            return result
+        }
+        
+        /* Gevin added */
+        public func exportPEM(privateKey: PrivateKey) throws -> String {
+            var lines = String()
+            lines.append("-----BEGIN PRIVATE KEY-----\n")
+            lines.append( try self.exportDER(privateKey: privateKey).base64EncodedString(options: [.lineLength64Characters, .endLineWithCarriageReturn]))
+            lines.append("\n-----END PRIVATE KEY-----")
+            return lines
+            
+        }
+        
+        /* Gevin added */
+        public func exportDER( publicKey: PublicKey ) throws -> Data {
+            let rawKeyData = try publicKey.exportData()
+            var result = Data()
+            result.append(Data(x9_62PublicECHeader))
+            result.append(rawKeyData)
+            return result
+        }
+        
+        /* Gevin added */
+        public func exportPEM(publicKey: PublicKey) throws -> String {
+            var lines = String()
+            lines.append("-----BEGIN PUBLIC KEY-----\n")
+            lines.append( try self.exportDER(publicKey: publicKey).base64EncodedString(options: [.lineLength64Characters, .endLineWithCarriageReturn]))
+            lines.append("\n-----END PUBLIC KEY-----")
+            return lines
+        }
+        
         public func getPublicKey() throws -> PublicKey {
-            return try Query.getPublicKey(labeled: config.publicLabel, accessGroup: config.publicKeyAccessGroup)
+            let query = QueryParam.publicKeyQuery(labeled: config.publicLabel, 
+                                                  accessGroup: config.publicKeyAccessGroup)
+            let rawKey: SecKey = try self.fetchSecKey(query) 
+            return PublicKey(rawKey)
         }
         
         public func getPrivateKey(context: LAContext? = nil) throws -> PrivateKey {
             let context = context ?? LAContext()
-            return try Query.getPrivateKey(labeled: config.privateLabel, accessGroup: config.privateKeyAccessGroup, prompt: config.operationPrompt, context: context)
+            let query = QueryParam.privateKeyQuery(labeled: config.privateLabel,
+                                              accessGroup: config.privateKeyAccessGroup, 
+                                              prompt: config.operationPrompt,
+                                              context: context)
+            let rawKey: SecKey = try self.fetchSecKey(query) 
+            return PrivateKey( rawKey, context: context)
         }
         
-        public func getKeys(context: LAContext? = nil) throws -> (`public`: PublicKey, `private`: PrivateKey) {
+        func fetchSecKey(_ query: [String: Any]) throws -> SecKey {
+            var raw: CFTypeRef?
+            logger?("SecItemCopyMatching: \(query)")
+            let status = SecItemCopyMatching(query as CFDictionary, &raw)
+            guard status == errSecSuccess, let result = raw else {
+                throw Error.osStatus(message: "Could not get key for query: \(query)", osStatus: status)
+            }
+            return result as! SecKey
+        }
+        
+        public func fetchSecKeyPairs(context: LAContext? = nil) throws -> (`public`: PublicKey, `private`: PrivateKey) {
             let privateKey = try getPrivateKey(context: context)
             let publicKey = try getPublicKey()
             return (public: publicKey, private: privateKey)
@@ -227,7 +509,7 @@ public enum EllipticCurveKeyPair {
                 throw Error.inconcistency(message: "Public key and private key can not have same label")
             }
             let context = context ?? LAContext()
-            let query = try Query.generateKeyPairQuery(config: config, token: config.token, context: context)
+            let query = try QueryParam.generateKeyPairQuery(config: config, token: config.token, context: context)
             var publicOptional, privateOptional: SecKey?
             logger?("SecKeyGeneratePair: \(query)")
             let status = SecKeyGeneratePair(query as CFDictionary, &publicOptional, &privateOptional)
@@ -243,20 +525,68 @@ public enum EllipticCurveKeyPair {
             }
             let publicKey = PublicKey(publicSec)
             let privateKey = PrivateKey(privateSec, context: context)
-            try Query.forceSavePublicKey(publicKey, label: config.publicLabel)
+            try self.forceSaveKey(publicSec, label: config.publicLabel)
+            try self.forceSaveKey(privateSec, label: config.privateLabel)
             return (public: publicKey, private: privateKey)
         }
         
-        public func delete() throws {
-            try Query.deletePublicKey(labeled: config.publicLabel, accessGroup: config.publicKeyAccessGroup)
-            try Query.deletePrivateKey(labeled: config.privateLabel, accessGroup: config.privateKeyAccessGroup)
+        
+        func deletePublicKey() throws {
+            let query = QueryParam.publicKeyQuery(labeled: config.publicLabel,
+                                                  accessGroup: config.publicKeyAccessGroup) as CFDictionary
+            logger?("SecItemDelete: \(query)")
+            let status = SecItemDelete(query as CFDictionary)
+            guard status == errSecSuccess || status == errSecItemNotFound else {
+                throw Error.osStatus(message: "Could not delete public key.", osStatus: status)
+            }
         }
+        
+        func deletePrivateKey() throws {
+            let query = QueryParam.privateKeyQuery(labeled: config.privateLabel,
+                                                   accessGroup: config.privateKeyAccessGroup,
+                                                   prompt: nil,
+                                                   context: nil) as CFDictionary
+            logger?("SecItemDelete: \(query)")
+            let status = SecItemDelete(query as CFDictionary)
+            guard status == errSecSuccess || status == errSecItemNotFound else {
+                throw Error.osStatus(message: "Could not delete private key.", osStatus: status)
+            }
+        }
+        
+        public func delete() throws {
+            try self.deletePublicKey()
+            try self.deletePrivateKey()
+        }
+        
+        func forceSaveKey(_ rawKey: SecKey, label: String) throws {
+            let query: [String: Any] = [
+                kSecClass as String: kSecClassKey,
+                kSecAttrLabel as String: label,
+                kSecValueRef as String: rawKey
+            ]
+            var raw: CFTypeRef?
+            logger?("SecItemAdd: \(query)")
+            var status = SecItemAdd(query as CFDictionary, &raw)
+            if status == errSecDuplicateItem {
+                logger?("SecItemDelete: \(query)")
+                status = SecItemDelete(query as CFDictionary)
+                logger?("SecItemAdd: \(query)")
+                status = SecItemAdd(query as CFDictionary, &raw)
+            }
+            if status == errSecInvalidRecord {
+                throw Error.osStatus(message: "Could not save public key. It is possible that the access control you have provided is not supported on this OS and/or hardware.", osStatus: status)
+            } else if status != errSecSuccess {
+                throw Error.osStatus(message: "Could not save public key", osStatus: status)
+            }
+        }
+        
+        // MARK: - Sign & Verify
         
         @available(iOS 10.0, *)
         public func sign(_ digest: Data, privateKey: PrivateKey, hash: Hash) throws -> Data {
             Helper.logToConsoleIfExecutingOnMainThread()
             var error : Unmanaged<CFError>?
-            let result = SecKeyCreateSignature(privateKey.underlying, hash.signatureMessage, digest as CFData, &error)
+            let result = SecKeyCreateSignature(privateKey.rawKey, hash.signatureMessage, digest as CFData, &error)
             guard let signature = result else {
                 throw Error.fromError(error?.takeRetainedValue(), message: "Could not create signature.")
             }
@@ -276,7 +606,7 @@ public enum EllipticCurveKeyPair {
                 var signatureBytes = [UInt8](repeating: 0, count: 128)
                 var signatureLength = 128
                 
-                let signErr = SecKeyRawSign(privateKey.underlying, .PKCS1, &digestToSignBytes, digestToSignBytes.count, &signatureBytes, &signatureLength)
+                let signErr = SecKeyRawSign(privateKey.rawKey, .PKCS1, &digestToSignBytes, digestToSignBytes.count, &signatureBytes, &signatureLength)
                 guard signErr == errSecSuccess else {
                     throw Error.osStatus(message: "Could not create signature.", osStatus: signErr)
                 }
@@ -291,7 +621,7 @@ public enum EllipticCurveKeyPair {
         @available(iOS 10.0, *)
         public func verify(signature: Data, digest: Data, publicKey: PublicKey, hash: Hash) throws {
             var error : Unmanaged<CFError>?
-            let valid = SecKeyVerifySignature(publicKey.underlying, hash.signatureMessage, digest as CFData, signature as CFData, &error)
+            let valid = SecKeyVerifySignature(publicKey.rawKey, hash.signatureMessage, digest as CFData, signature as CFData, &error)
             if let error = error?.takeRetainedValue() {
                 throw Error.fromError(error, message: "Could not verify signature.")
             }
@@ -311,7 +641,7 @@ public enum EllipticCurveKeyPair {
                 var signatureBytes = [UInt8](repeating: 0, count: signature.count)
                 signature.copyBytes(to: &signatureBytes, count: signature.count)
                 
-                let status = SecKeyRawVerify(publicKey.underlying, .PKCS1, &shaBytes, shaBytes.count, &signatureBytes, signatureBytes.count)
+                let status = SecKeyRawVerify(publicKey.rawKey, .PKCS1, &shaBytes, shaBytes.count, &signatureBytes, signatureBytes.count)
                 guard status == errSecSuccess else {
                     throw Error.osStatus(message: "Could not verify signature.", osStatus: status)
                 }
@@ -323,7 +653,7 @@ public enum EllipticCurveKeyPair {
         @available(iOS 10.3, *)
         public func encrypt(_ digest: Data, publicKey: PublicKey, hash: Hash) throws -> Data {
             var error : Unmanaged<CFError>?
-            let result = SecKeyCreateEncryptedData(publicKey.underlying, hash.encryptionEciesEcdh, digest as CFData, &error)
+            let result = SecKeyCreateEncryptedData(publicKey.rawKey, hash.encryptionEciesEcdh, digest as CFData, &error)
             guard let data = result else {
                 throw Error.fromError(error?.takeRetainedValue(), message: "Could not encrypt.")
             }
@@ -334,7 +664,7 @@ public enum EllipticCurveKeyPair {
         public func decrypt(_ encrypted: Data, privateKey: PrivateKey, hash: Hash) throws -> Data {
             Helper.logToConsoleIfExecutingOnMainThread()
             var error : Unmanaged<CFError>?
-            let result = SecKeyCreateDecryptedData(privateKey.underlying, hash.encryptionEciesEcdh, encrypted as CFData, &error)
+            let result = SecKeyCreateDecryptedData(privateKey.rawKey, hash.encryptionEciesEcdh, encrypted as CFData, &error)
             guard let data = result else {
                 throw Error.fromError(error?.takeRetainedValue(), message: "Could not decrypt.")
             }
@@ -354,18 +684,33 @@ public enum EllipticCurveKeyPair {
         }()
     }
     
-    private struct Query {
+    private struct QueryParam {
         
-        static func getKey(_ query: [String: Any]) throws -> SecKey {
-            var raw: CFTypeRef?
-            logger?("SecItemCopyMatching: \(query)")
-            let status = SecItemCopyMatching(query as CFDictionary, &raw)
-            guard status == errSecSuccess, let result = raw else {
-                throw Error.osStatus(message: "Could not get key for query: \(query)", osStatus: status)
-            }
-            return result as! SecKey
+        /* Gevin added */
+        static func publicKeyCreate( publicKeyData: Data ) -> [CFString:Any] {
+            let sizeInBits = publicKeyData.count * 8
+            let createParam:[CFString:Any] = [
+                kSecAttrKeyType: QueryParam.ECKeyType(),
+                kSecAttrKeyClass: kSecAttrKeyClassPublic,
+                kSecAttrKeySizeInBits: NSNumber(value: sizeInBits),
+                kSecReturnPersistentRef: true
+            ]
+            return createParam
         }
         
+        /* Gevin added */
+        static func privateKeyCreate( privateKeyData: Data ) -> [CFString:Any] {
+            let sizeInBits = privateKeyData.count * 8
+            let createParam:[CFString:Any] = [
+                kSecAttrKeyType: Constants.attrKeyTypeEllipticCurve,
+                kSecAttrKeyClass: kSecAttrKeyClassPrivate,
+                kSecAttrKeySizeInBits: NSNumber(value: sizeInBits),
+                kSecReturnPersistentRef: true
+            ]
+            return createParam
+        }
+        
+        /* Gevin added */
         static func publicKeyQuery(labeled: String, accessGroup: String?) -> [String:Any] {
             var params: [String:Any] = [
                 kSecClass as String: kSecClassKey,
@@ -378,6 +723,61 @@ public enum EllipticCurveKeyPair {
             }
             return params
         }
+        
+        /* Gevin added */
+        static func privateKeyCopy( privateLabel: String ) -> [CFString:Any] {
+            let keyCopyDict: [CFString: Any] = [
+                kSecClass: kSecClassKey,
+                kSecAttrApplicationTag: privateLabel,
+                kSecAttrKeyType: Constants.attrKeyTypeEllipticCurve,
+                kSecAttrKeyClass: kSecAttrKeyClassPrivate,
+                kSecAttrAccessible: kSecAttrAccessibleWhenUnlocked,
+                kSecReturnRef: true,
+                ]
+            return keyCopyDict
+        }
+        
+        /* Gevin added */
+        static func privateKeyItemAdd( privateLabel: String, keyData: Data ) -> [CFString:Any] {
+            let keyAddDict: [CFString: Any] = [
+                kSecClass: kSecClassKey,
+                kSecAttrApplicationTag: privateLabel,
+                kSecAttrKeyType: Constants.attrKeyTypeEllipticCurve,
+                kSecValueData: keyData,
+                kSecAttrKeyClass: kSecAttrKeyClassPrivate,
+                kSecReturnPersistentRef: true,
+                kSecAttrAccessible: kSecAttrAccessibleWhenUnlocked
+            ]
+            return keyAddDict
+        }
+        
+        /* Gevin added */
+        static func publicKeyCopy( publicLabel: String ) -> [CFString:Any] {
+            let keyCopyDict: [CFString: Any] = [
+                kSecClass: kSecClassKey,
+                kSecAttrApplicationTag: publicLabel,
+                kSecAttrKeyType: Constants.attrKeyTypeEllipticCurve,
+                kSecAttrKeyClass: kSecAttrKeyClassPublic,
+                kSecAttrAccessible: kSecAttrAccessibleWhenUnlocked,
+                kSecReturnRef: true,
+                ]
+            return keyCopyDict
+        }
+        
+        /* Gevin added */
+        static func publicKeyItemAdd( publicLabel: String, keyData: Data ) -> [CFString:Any] {
+            let keyAddDict: [CFString: Any] = [
+                kSecClass: kSecClassKey,
+                kSecAttrApplicationTag: publicLabel,
+                kSecAttrKeyType: Constants.attrKeyTypeEllipticCurve,
+                kSecValueData: keyData,
+                kSecAttrKeyClass: kSecAttrKeyClassPublic,
+                kSecReturnPersistentRef: true,
+                kSecAttrAccessible: kSecAttrAccessibleWhenUnlocked
+            ]
+            return keyAddDict
+        }
+        
         
         static func privateKeyQuery(labeled: String, accessGroup: String?, prompt: String?, context: LAContext?) -> [String: Any] {
             var params: [String:Any] = [
@@ -448,53 +848,11 @@ public enum EllipticCurveKeyPair {
             return params
         }
         
-        static func getPublicKey(labeled: String, accessGroup: String?) throws -> PublicKey {
-            let query = publicKeyQuery(labeled: labeled, accessGroup: accessGroup)
-            return PublicKey(try getKey(query))
-        }
-        
-        static func getPrivateKey(labeled: String, accessGroup: String?, prompt: String?, context: LAContext? = nil) throws -> PrivateKey {
-            let query = privateKeyQuery(labeled: labeled, accessGroup: accessGroup, prompt: prompt, context: context)
-            return PrivateKey(try getKey(query), context: context)
-        }
-        
-        static func deletePublicKey(labeled: String, accessGroup: String?) throws {
-            let query = publicKeyQuery(labeled: labeled, accessGroup: accessGroup) as CFDictionary
-            logger?("SecItemDelete: \(query)")
-            let status = SecItemDelete(query as CFDictionary)
-            guard status == errSecSuccess || status == errSecItemNotFound else {
-                throw Error.osStatus(message: "Could not delete public key.", osStatus: status)
-            }
-        }
-        
-        static func deletePrivateKey(labeled: String, accessGroup: String?) throws {
-            let query = privateKeyQuery(labeled: labeled, accessGroup: accessGroup, prompt: nil, context: nil) as CFDictionary
-            logger?("SecItemDelete: \(query)")
-            let status = SecItemDelete(query as CFDictionary)
-            guard status == errSecSuccess || status == errSecItemNotFound else {
-                throw Error.osStatus(message: "Could not delete private key.", osStatus: status)
-            }
-        }
-        
-        static func forceSavePublicKey(_ publicKey: PublicKey, label: String) throws {
-            let query: [String: Any] = [
-                kSecClass as String: kSecClassKey,
-                kSecAttrLabel as String: label,
-                kSecValueRef as String: publicKey.underlying
-            ]
-            var raw: CFTypeRef?
-            logger?("SecItemAdd: \(query)")
-            var status = SecItemAdd(query as CFDictionary, &raw)
-            if status == errSecDuplicateItem {
-                logger?("SecItemDelete: \(query)")
-                status = SecItemDelete(query as CFDictionary)
-                logger?("SecItemAdd: \(query)")
-                status = SecItemAdd(query as CFDictionary, &raw)
-            }
-            if status == errSecInvalidRecord {
-                throw Error.osStatus(message: "Could not save public key. It is possible that the access control you have provided is not supported on this OS and/or hardware.", osStatus: status)
-            } else if status != errSecSuccess {
-                throw Error.osStatus(message: "Could not save public key", osStatus: status)
+        static func ECKeyType() -> String {
+            if #available(iOS 10.0, *) {
+                return kSecAttrKeyTypeECSECPrimeRandom as String
+            } else {
+                return kSecAttrKeyTypeEC as String
             }
         }
     }
@@ -510,55 +868,12 @@ public enum EllipticCurveKeyPair {
         }()
     }
     
-    public final class PublicKeyData {
-        
-        // As received from Security framework
-        public let raw: Data
-        
-        // The open ssl compatible DER format X.509
-        //
-        // We take the raw key and prepend an ASN.1 headers to it. The end result is an
-        // ASN.1 SubjectPublicKeyInfo structure, which is what OpenSSL is looking for.
-        //
-        // See the following DevForums post for more details on this.
-        // https://forums.developer.apple.com/message/84684#84684
-        //
-        // End result looks like this
-        // https://lapo.it/asn1js/#3059301306072A8648CE3D020106082A8648CE3D030107034200041F4E3F6CD8163BCC14505EBEEC9C30971098A7FA9BFD52237A3BCBBC48009162AAAFCFC871AC4579C0A180D5F207316F74088BF01A31F83E9EBDC029A533525B
-        //
-        public lazy var DER: Data = {
-            var x9_62HeaderECHeader = [UInt8]([
-                /* sequence          */ 0x30, 0x59,
-                /* |-> sequence      */ 0x30, 0x13,
-                /* |---> ecPublicKey */ 0x06, 0x07, 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x02, 0x01, // http://oid-info.com/get/1.2.840.10045.2.1 (ANSI X9.62 public key type)
-                /* |---> prime256v1  */ 0x06, 0x08, 0x2A, 0x86, 0x48, 0xCE, 0x3D, 0x03, 0x01, // http://oid-info.com/get/1.2.840.10045.3.1.7 (ANSI X9.62 named elliptic curve)
-                /* |-> bit headers   */ 0x07, 0x03, 0x42, 0x00
-                ])
-            var result = Data()
-            result.append(Data(x9_62HeaderECHeader))
-            result.append(self.raw)
-            return result
-        }()
-        
-        public lazy var PEM: String = {
-            var lines = String()
-            lines.append("-----BEGIN PUBLIC KEY-----\n")
-            lines.append(self.DER.base64EncodedString(options: [.lineLength64Characters, .endLineWithCarriageReturn]))
-            lines.append("\n-----END PUBLIC KEY-----")
-            return lines
-        }()
-        
-        internal init(_ raw: Data) {
-            self.raw = raw
-        }
-    }
-    
     public class Key {
         
-        public let underlying: SecKey
+        public let rawKey: SecKey
         
         internal init(_ underlying: SecKey) {
-            self.underlying = underlying
+            self.rawKey = underlying
         }
         
         private var cachedAttributes: [String:Any]? = nil
@@ -595,7 +910,7 @@ public enum EllipticCurveKeyPair {
             var matchResult: AnyObject? = nil
             let query: [String:Any] = [
                 kSecClass as String: kSecClassKey,
-                kSecValueRef as String: underlying,
+                kSecValueRef as String: rawKey,
                 kSecReturnAttributes as String: true
             ]
             logger?("SecItemCopyMatching: \(query)")
@@ -608,61 +923,38 @@ public enum EllipticCurveKeyPair {
             }
             return attributes
         }
+        
+        
+        func exportData() throws -> Data {
+            if #available(iOS 10.0, *) {
+                var error : Unmanaged<CFError>?
+                guard let raw = SecKeyCopyExternalRepresentation(rawKey, &error) else {
+                    throw EllipticCurveKeyPair.Error.fromError(error?.takeRetainedValue(), message: "Tried reading public key bytes.")
+                }
+                return raw as Data
+            }
+            else{
+                var matchResult: AnyObject? = nil
+                let query: [String:Any] = [
+                    kSecClass as String: kSecClassKey,
+                    kSecValueRef as String: rawKey,
+                    kSecReturnData as String: true
+                ]
+                logger?("SecItemCopyMatching: \(query)")
+                let status = SecItemCopyMatching(query as CFDictionary, &matchResult)
+                guard status == errSecSuccess else {
+                    throw Error.osStatus(message: "Could not generate keypair", osStatus: status)
+                }
+                guard let keyRaw = matchResult as? Data else {
+                    throw Error.inconcistency(message: "Tried reading public key bytes. Expected data, but received \(String(describing: matchResult)).")
+                }
+                return keyRaw
+            }
+        }
     }
     
     public final class PublicKey: Key {
-        
-        private var cachedData: PublicKeyData? = nil
-        
-        public func data() throws -> PublicKeyData {
-            if let data = cachedData {
-                return data
-            } else {
-                let data = try queryData()
-                cachedData = data
-                return data
-            }
-        }
-        
-        private func queryData() throws -> PublicKeyData {
-            let keyRaw: Data
-            if #available(iOS 10.0, *) {
-                keyRaw = try export()
-            } else {
-                keyRaw = try exportWithOldApi()
-            }
-            guard keyRaw.first == Constants.noCompression else {
-                throw Error.inconcistency(message: "Tried reading public key bytes, but its headers says it is compressed and this library only handles uncompressed keys.")
-            }
-            return PublicKeyData(keyRaw)
-        }
-        
-        @available(iOS 10.0, *)
-        private func export() throws -> Data {
-            var error : Unmanaged<CFError>?
-            guard let raw = SecKeyCopyExternalRepresentation(underlying, &error) else {
-                throw EllipticCurveKeyPair.Error.fromError(error?.takeRetainedValue(), message: "Tried reading public key bytes.")
-            }
-            return raw as Data
-        }
-        
-        private func exportWithOldApi() throws -> Data {
-            var matchResult: AnyObject? = nil
-            let query: [String:Any] = [
-                kSecClass as String: kSecClassKey,
-                kSecValueRef as String: underlying,
-                kSecReturnData as String: true
-            ]
-            logger?("SecItemCopyMatching: \(query)")
-            let status = SecItemCopyMatching(query as CFDictionary, &matchResult)
-            guard status == errSecSuccess else {
-                throw Error.osStatus(message: "Could not generate keypair", osStatus: status)
-            }
-            guard let keyRaw = matchResult as? Data else {
-                throw Error.inconcistency(message: "Tried reading public key bytes. Expected data, but received \(String(describing: matchResult)).")
-            }
-            return keyRaw
-        }
+
     }
     
     public final class PrivateKey: Key {
@@ -831,5 +1123,17 @@ public enum EllipticCurveKeyPair {
             return hasTouchID && !isSimulator
         }
         
+    }
+}
+
+extension Data {
+    struct HexEncodingOptions: OptionSet {
+        let rawValue: Int
+        static let upperCase = HexEncodingOptions(rawValue: 1 << 0)
+    }
+    
+    func hexEncodedString(options: HexEncodingOptions = []) -> String {
+        let format = options.contains(.upperCase) ? "%02hhX" : "%02hhx"
+        return map { String(format: format, $0) }.joined()
     }
 }

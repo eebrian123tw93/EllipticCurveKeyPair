@@ -41,8 +41,10 @@ class SignatureViewController: NSViewController {
         super.viewDidLoad()
         
         do {
+            let pkey = try Shared.keypair.privateKey().data()
             let key = try Shared.keypair.publicKey().data()
-            publicKeyTextView.string = key.PEM
+            
+            publicKeyTextView.string = "\(pkey.PEM)\n\n\(key.PEM)"
         } catch {
             publicKeyTextView.string = "Error: \(error)"
         }
