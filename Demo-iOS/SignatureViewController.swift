@@ -44,7 +44,7 @@ class SignatureViewController: UIViewController {
         return EllipticCurveKeyPair.Manager(config: config)
     }()
     
-    var context: LAContext! = LAContext()
+//    var context: LAContext! = LAContext()
     
     @IBOutlet weak var publicKeyTextView: UITextView!
     @IBOutlet weak var digestTextView: UITextView!
@@ -54,6 +54,7 @@ class SignatureViewController: UIViewController {
         super.viewDidLoad()
         
         do {
+//            try self.keypair.deleteKeyPair()
             // public ECC
             let publicKey = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEV+PBO2YXn+WPiRmipqOtjAaNYfQqtCuNgZyMFaXAlCUmnVUM7jpsYsyrrSBcetLm4QYtIANERp6PlOh6Uy9Ylg=="
             // private ECC
@@ -63,22 +64,28 @@ class SignatureViewController: UIViewController {
             try keypair.importPrivateKeyB64(privateKey)
             try keypair.importPublicKeyB64(publicKey)
             
+            // generate key pair
+//            try keypair.generateKeyPair()
+            
+            // 輸出 key 
             let privateKeyData = try keypair.privateKeyDER()
             let publicKeyData = try keypair.publicKeyDER()
-            let privateKeyPem = try keypair.privateKeyPEM()
-            let publicKeyPem = try keypair.publicKeyPEM()
             let private_data: String = GTMBase64.string(byEncoding: privateKeyData)
             let public_data: String = GTMBase64.string(byEncoding: publicKeyData)
+
+            let privateKeyPem = try keypair.privateKeyPEM()
+            let publicKeyPem = try keypair.publicKeyPEM()
             print("private key:\n\(private_data)")
             print("public key:\n\(public_data)")
+            
             publicKeyTextView.text = "\(privateKeyPem)\n\n\(publicKeyPem)"
         } catch {
             publicKeyTextView.text = "Error: \(error)"
+            print("Error: \(error)")
         }
     }
     
     @IBAction func regeneratePublicKey(_ sender: Any) {
-        context = LAContext()
         do {
             try keypair.deleteKeyPair()
             publicKeyTextView.text = try keypair.publicKeyPEM()
@@ -108,7 +115,7 @@ class SignatureViewController: UIViewController {
             }
             return digest
         }, thenAsync: { digest in
-            return try self.keypair.signUsingSha256(digest, context: self.context)            
+            return try self.keypair.signUsingSha256(digest)            
         }, thenOnMain: { digest, signature in
             let sign_b64 = signature.base64EncodedString()
             print("sign: \(sign_b64)")
