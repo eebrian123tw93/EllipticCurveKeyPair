@@ -141,26 +141,28 @@ class EncryptionViewController: UIViewController {
          Using the DispatchQueue.roundTrip defined in Utils.swift is totally optional.
          What's important is that you call `decrypt` on a different thread than main.
          */
+        guard let encrypted = Data(base64Encoded: self.encryptDecryptTextView.text ?? "") else {
+            self.state = .error("Missing text in unencrypted text field")
+            return
+        }
         
-        DispatchQueue.roundTrip({ () -> Data in
-            guard let encrypted = Data(base64Encoded: self.encryptDecryptTextView.text ?? "") else {
-                throw "Missing text in unencrypted text field"
-            }
-            return encrypted
-        }, thenAsync: { (encrypted) -> String in
-            guard #available(iOS 10.3, *) else {
-                throw "Can not encrypt on this device (must be iOS 10.3)"
-            }
+        guard #available(iOS 10.3, *) else {
+            self.state = .error("Can not encrypt on this device (must be iOS 10.3)")
+            return
+        }
+        
+        do {
             let result = try self.keypair.decrypt(encrypted, hash: .sha256)
             guard let decrypted = String(data: result, encoding: .utf8) else {
-                throw "Could not convert decrypted data to string"
+                self.state = .error("Could not convert decrypted data to string")
+                return
             }
-            return decrypted
-        }, thenOnMain: { encrypted, decrypted in
             self.state = .decrypted(decrypted)
-        }, catchToMain: { (error) in
+        } catch {
             self.state = .error(error)
-        })
+        }
+        
+        
     }
 }
 

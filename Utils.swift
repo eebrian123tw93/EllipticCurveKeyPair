@@ -27,7 +27,7 @@ import EllipticCurveKeyPair
 
 extension String: Error {}
 
-func printVerifySignatureInOpenssl(manager: EllipticCurveKeyPair.Manager, signed: Data, digest: Data, hashAlgorithm: String) throws {
+func printVerifySignatureInOpenssl(manager: EllipticCurveKeyPair.Manager, signed: Data, digest: Data, hashAlgorithm: String) throws -> String {
     assert(hashAlgorithm.hasPrefix("sha"))
     var publicKeyBase = (try? manager.publicKeyDER().base64EncodedString()) ?? "error fetching public key"
     publicKeyBase.insert("\n", at: publicKeyBase.index(publicKeyBase.startIndex, offsetBy: 64))
@@ -38,43 +38,8 @@ func printVerifySignatureInOpenssl(manager: EllipticCurveKeyPair.Manager, signed
     shell.append("echo \(signed.map { String(format: "%02hhx", $0) }.joined()) | xxd -r -p > signature.dat")
     shell.append("cat > key.pem <<EOF\n-----BEGIN PUBLIC KEY-----\n\(publicKeyBase)\n-----END PUBLIC KEY-----\nEOF")
     shell.append("/usr/local/opt/openssl/bin/openssl dgst -\(hashAlgorithm) -verify key.pem -signature signature.dat dataToSign.dat")
-    print(shell.joined(separator: "\n"))
-}
-
-extension DispatchQueue {
-    
-    static func roundTrip<T, Y>(_ block: () throws -> T,
-                                       thenAsync: @escaping (T) throws -> Y,
-                                       thenOnMain: @escaping (T, Y) throws -> Void,
-                                       catchToMain: @escaping (Error) -> Void) {
-        do {
-            let resultFromMain = try block()
-            DispatchQueue.global(qos: .userInitiated).async {
-                do {
-                    let resultFromBackground = try thenAsync(resultFromMain)
-                    DispatchQueue.main.async {
-                        do {
-                            try thenOnMain(resultFromMain, resultFromBackground)
-                        } catch {
-                            catchToMain(error)
-                        }
-                    }
-                } catch {
-                    DispatchQueue.main.async {
-                        catchToMain(error)
-                    }
-                }
-            }
-        } catch {
-            catchToMain(error)
-        }
-    }
-}
-
-func delay( _ delay: Double, queue: DispatchQueue = DispatchQueue.main, completion: @escaping () -> () ) {
-    queue.asyncAfter(deadline: DispatchTime.now() + Double(Int64(delay * Double(NSEC_PER_SEC))) / Double(NSEC_PER_SEC)) { () -> Void in
-        completion()
-    }
+//    print(shell.joined(separator: "\n"))
+    return shell.joined(separator: "\n")
 }
 
 @available(iOS 10, *)

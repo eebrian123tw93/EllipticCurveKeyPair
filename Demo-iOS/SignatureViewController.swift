@@ -49,12 +49,14 @@ class SignatureViewController: UIViewController {
     @IBOutlet weak var publicKeyTextView: UITextView!
     @IBOutlet weak var digestTextView: UITextView!
     @IBOutlet weak var signatureTextView: UITextView!
-
+    @IBOutlet weak var verifyResultLabel: UILabel!
+    
     override func viewDidLoad() {
         super.viewDidLoad()
         
         do {
 //            try self.keypair.deleteKeyPair()
+            // 下面這組 key 是用 java 產生，因為之後要跟 java 對接
             // public ECC
             let publicKey = "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEV+PBO2YXn+WPiRmipqOtjAaNYfQqtCuNgZyMFaXAlCUmnVUM7jpsYsyrrSBcetLm4QYtIANERp6PlOh6Uy9Ylg=="
             // private ECC
@@ -105,27 +107,64 @@ class SignatureViewController: UIViewController {
     @IBAction func sign(_ sender: Any) {
         
         /*
-         Using the DispatchQueue.roundTrip defined in Utils.swift is totally optional.
-         What's important is that you call `sign` on a different thread than main.
-         */
+         
+         1. 兩方會產生兩組 private key , public key
+         以 a b 來表示兩方
+         a                 b
+         a privatekey  |   b privatekey
+         a publickey   |   b publickey
+
+         2. 雙方交換公鑰
+         a                 b
+         a privatekey  |   b privatekey
+         b publickey   |   a publickey
+         
+         3. a 送訊給 b，的詳細步驟會是
+            1 a 先對訊息明文做 sha256 編碼算出 hash
+            2 a 用 a privatekey 對 hash 做加密
+            3 a 把加密後的 data 送給對方，此加密後的data 即為 sign(簽章)
         
-        DispatchQueue.roundTrip({
-            guard let digest = self.digestTextView.text?.data(using: .utf8) else {
-                throw "Missing text in unencrypted text field"
-            }
-            return digest
-        }, thenAsync: { digest in
-            return try self.keypair.signUsingSha256(digest)            
-        }, thenOnMain: { digest, signature in
+         4. b 收到加密訊息與簽章後
+            1 b 解密訊息
+            2 b 把解密明文做 sha256 編碼，取得 hash1
+            3 b 把 sign 用 a publickey 做解密，取得 hash2
+            4 b 把 hash1 跟 hash2 做比對，檢查兩者是否一致，一致的話表示驗證通過
+         
+         */
+        guard let digest = self.digestTextView.text?.data(using: .utf8) else {
+            self.signatureTextView.text = "Missing text in unencrypted text field"
+            return
+        }
+
+        //------------------------
+        // sign
+        //------------------------
+        var signData: Data?
+        do{
+            signData = try self.keypair.signUsingSha256(digest)
+        } catch {
+            print("sign error: \(error)")
+            self.signatureTextView.text = "Sign Error: \(error)"
+        }
+        
+        guard let signature = signData else {
+            return
+        }
+        
+        //------------------------
+        // verify
+        //------------------------
+        do{
             let sign_b64 = signature.base64EncodedString()
             print("sign: \(sign_b64)")
-            self.signatureTextView.text = sign_b64 
+            self.signatureTextView.text = sign_b64
             try self.keypair.verifyUsingSha256(signature: signature, originalDigest: digest)
-            try printVerifySignatureInOpenssl(manager: self.keypair, signed: signature, digest: digest, hashAlgorithm: "sha256")
-        }, catchToMain: { error in
-            self.signatureTextView.text = "Error: \(error)"
-            
-        })
+            let result = try printVerifySignatureInOpenssl(manager: self.keypair, signed: signature, digest: digest, hashAlgorithm: "sha256")
+            self.verifyResultLabel.text = "verify success!\n\(result)"
+        } catch {
+            print("verify error: \(error)")
+            self.signatureTextView.text = "Verify Error: \(error)"
+        }
     }
     
 }
