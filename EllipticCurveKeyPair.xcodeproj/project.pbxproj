@@ -35,7 +35,6 @@
 		A3FD3A961FBC54A900747A5F /* SignatureViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3FD3A951FBC54A900747A5F /* SignatureViewController.swift */; };
 		A3FD3A981FBC54B700747A5F /* EncryptionViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A3FD3A971FBC54B700747A5F /* EncryptionViewController.swift */; };
 		DD7502881C68FEDE006590AF /* EllipticCurveKeyPair.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 52D6DA0F1BF000BD002C0205 /* EllipticCurveKeyPair.framework */; };
-		EEAE3E7420A894FD00793E77 /* GTMBase64.m in Sources */ = {isa = PBXBuildFile; fileRef = EEAE3E7020A894FD00793E77 /* GTMBase64.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -123,10 +122,6 @@
 		AD2FAA261CD0B6D800659CF4 /* EllipticCurveKeyPair.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = EllipticCurveKeyPair.plist; sourceTree = "<group>"; };
 		AD2FAA281CD0B6E100659CF4 /* EllipticCurveKeyPairTests.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = EllipticCurveKeyPairTests.plist; sourceTree = "<group>"; };
 		DD75027A1C68FCFC006590AF /* EllipticCurveKeyPair-macOS Tests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "EllipticCurveKeyPair-macOS Tests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
-		EEAE3E6F20A894FD00793E77 /* GTMBase64.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = GTMBase64.h; sourceTree = "<group>"; };
-		EEAE3E7020A894FD00793E77 /* GTMBase64.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = GTMBase64.m; sourceTree = "<group>"; };
-		EEAE3E7120A894FD00793E77 /* GTMDefines.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = GTMDefines.h; sourceTree = "<group>"; };
-		EEAE3E7620A8958600793E77 /* EllipticCurveKeyPair-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "EllipticCurveKeyPair-Bridging-Header.h"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -188,7 +183,6 @@
 				A35A3FE01FB9CBE80093C12B /* Demo-macOS */,
 				A35A3FF41FB9CC1B0093C12B /* Demo-iOS */,
 				A35A40111FB9CC8D0093C12B /* Utils.swift */,
-				EEAE3E7620A8958600793E77 /* EllipticCurveKeyPair-Bridging-Header.h */,
 				52D6D97D1BEFF229002C0205 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -252,7 +246,6 @@
 		A35A3FF41FB9CC1B0093C12B /* Demo-iOS */ = {
 			isa = PBXGroup;
 			children = (
-				EEAE3E6E20A894FD00793E77 /* GTMBase64 */,
 				A35A3FF51FB9CC1B0093C12B /* AppDelegate.swift */,
 				A35A3FF91FB9CC1B0093C12B /* SignatureViewController.swift */,
 				A35A3FF71FB9CC1B0093C12B /* EncryptionViewController.swift */,
@@ -278,16 +271,6 @@
 				AD2FAA281CD0B6E100659CF4 /* EllipticCurveKeyPairTests.plist */,
 			);
 			name = Tests;
-			sourceTree = "<group>";
-		};
-		EEAE3E6E20A894FD00793E77 /* GTMBase64 */ = {
-			isa = PBXGroup;
-			children = (
-				EEAE3E6F20A894FD00793E77 /* GTMBase64.h */,
-				EEAE3E7020A894FD00793E77 /* GTMBase64.m */,
-				EEAE3E7120A894FD00793E77 /* GTMDefines.h */,
-			);
-			path = GTMBase64;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -584,7 +567,6 @@
 			files = (
 				A35A3FFA1FB9CC1B0093C12B /* SignatureViewController.swift in Sources */,
 				A35A3FF61FB9CC1B0093C12B /* AppDelegate.swift in Sources */,
-				EEAE3E7420A894FD00793E77 /* GTMBase64.m in Sources */,
 				A35A3FF81FB9CC1B0093C12B /* EncryptionViewController.swift in Sources */,
 				A35A40121FB9CC8D0093C12B /* Utils.swift in Sources */,
 			);
@@ -767,7 +749,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = "com.EllipticCurveKeyPair.EllipticCurveKeyPair-iOS";
 				PRODUCT_NAME = EllipticCurveKeyPair;
 				SKIP_INSTALL = YES;
-				SWIFT_OBJC_BRIDGING_HEADER = "EllipticCurveKeyPair-Bridging-Header.h";
+				SWIFT_OBJC_BRIDGING_HEADER = "";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_SWIFT3_OBJC_INFERENCE = On;
 				SWIFT_VERSION = 4.0;
@@ -793,7 +775,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = "com.EllipticCurveKeyPair.EllipticCurveKeyPair-iOS";
 				PRODUCT_NAME = EllipticCurveKeyPair;
 				SKIP_INSTALL = YES;
-				SWIFT_OBJC_BRIDGING_HEADER = "EllipticCurveKeyPair-Bridging-Header.h";
+				SWIFT_OBJC_BRIDGING_HEADER = "";
 				SWIFT_OPTIMIZATION_LEVEL = "-Owholemodule";
 				SWIFT_SWIFT3_OBJC_INFERENCE = On;
 				SWIFT_VERSION = 4.0;
