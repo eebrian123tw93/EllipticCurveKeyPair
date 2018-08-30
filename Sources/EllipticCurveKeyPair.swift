@@ -101,25 +101,20 @@ public enum EllipticCurveKeyPair {
         }
         
         /* Gevin added: */
-        public func importPrivateKeyB64(_ privateKeyB64: String ) throws{
+        public func importPrivateKeyB64(_ privateKeyB64: String ) throws {
             try self.helper.importKeyBase64(privateKeyB64: privateKeyB64, context: self.context )
             try cachedPrivateKey = self.helper.fetchPrivateKey(context: self.context)
         }
         
         /* Gevin added: */
-        public func importPublicKeyB64(_ publicKeyB64: String ) throws{
+        public func importPublicKeyB64(_ publicKeyB64: String ) throws {
             try self.helper.importKeyBase64(publicKeyB64: publicKeyB64 )
             try cachedPublicKey = self.helper.fetchPublicKey()
         }
         
         /* Gevin added: */
-        public func privateKeyDER() throws -> Data{
+        public func privateKeyDER() throws -> Data {
             return try self.helper.exportDER( privateKey: self.privateKey())
-        }
-        
-        /* Gevin added: */
-        public func publicKeyDER() throws -> Data{
-            return try self.helper.exportDER( publicKey: self.publicKey())
         }
         
         /* Gevin added */
@@ -127,11 +122,30 @@ public enum EllipticCurveKeyPair {
             let privateKeyPEM = try self.helper.exportPEM(privateKey: self.privateKey())
             return privateKeyPEM
         }
+
+        /* Gevin added: */
+        public func privateKeyBase64() throws -> String {
+            let data = try self.helper.exportDER( privateKey: self.privateKey())
+            let b64key = data.base64EncodedString()
+            return b64key
+        }
+
+        /* Gevin added: */
+        public func publicKeyDER() throws -> Data {
+            return try self.helper.exportDER( publicKey: self.publicKey())
+        }
         
         /* Gevin added */
         public func publicKeyPEM() throws -> String {
-            let publicKeyPEM = try self.helper.exportPEM(publicKey: self.publicKey() )
+            let publicKeyPEM = try self.helper.exportPEM( publicKey: self.publicKey())
             return publicKeyPEM
+        }
+        
+        /* Gevin added: */
+        public func publicKeyBase64() throws -> String {
+            let data = try self.helper.exportDER( publicKey: self.publicKey())
+            let b64key = data.base64EncodedString()
+            return b64key
         }
         
         /* Gevin added: */
