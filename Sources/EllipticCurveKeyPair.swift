@@ -50,6 +50,14 @@ public class EllipticCurveKeyPair : NSObject {
         super.init()
     }
     
+    deinit {
+        do{
+            try self.deleteKeyPair()
+        } catch {
+            print(error)
+        }
+    }
+    
     /* Gevin added: */
     public func importPrivateKeyB64(_ privateKeyB64: String ) throws {
         try self.helper.importKeyBase64(privateKeyB64: privateKeyB64, context: self.context )
@@ -353,10 +361,16 @@ public class EllipticCurveKeyPair : NSObject {
             
             // On iOS 10+, we can use SecKeyCreateWithData without going through the keychain
             if #available(iOS 10.0, *), #available(watchOS 3.0, *), #available(tvOS 10.0, *) {
-                let keyDict: [CFString: Any] = QueryParam.privateKeyCreate(privateKeyData: result)
-                
+
+                let sizeInBits = result.count * 8
+                let createParams:[CFString:Any] = [
+                    kSecAttrKeyType: kSecAttrKeyTypeEC, //Constants.attrKeyTypeEllipticCurve,
+                    kSecAttrKeyClass: kSecAttrKeyClassPrivate,
+                    kSecAttrKeySizeInBits: NSNumber(value: sizeInBits),
+                    kSecReturnPersistentRef: true
+                ]
                 var error: Unmanaged<CFError>?
-                guard let key = SecKeyCreateWithData(result as CFData, keyDict as CFDictionary, &error) else {
+                guard let key = SecKeyCreateWithData(result as CFData, createParams as CFDictionary, &error) else {
                     let errMsg = "Private key create failed."
                     guard let err = error else {
                         throw Error.inconcistency(message: errMsg)
@@ -371,13 +385,28 @@ public class EllipticCurveKeyPair : NSObject {
             } else {
                 
                 let persistKey = UnsafeMutablePointer<AnyObject?>(mutating: nil)
-                let keyAddDict: [CFString: Any] = QueryParam.privateKeyItemAdd(privateLabel: config.privateLabel, keyData: result)
+                let keyAddDict: [CFString: Any] = [
+                    kSecClass: kSecClassKey,
+                    kSecAttrApplicationTag: config.privateLabel,
+                    kSecAttrKeyType: kSecAttrKeyTypeEC,
+                    kSecValueData: result,
+                    kSecAttrKeyClass: kSecAttrKeyClassPrivate,
+                    kSecReturnPersistentRef: true,
+                    kSecAttrAccessible: kSecAttrAccessibleWhenUnlocked
+                ]
                 let addStatus = SecItemAdd(keyAddDict as CFDictionary, persistKey)
                 guard addStatus == errSecSuccess || addStatus == errSecDuplicateItem else {
                     throw Error.osStatus(message: "Private key create failed.", osStatus: addStatus)
                 }
                 
-                let keyCopyDict: [CFString: Any] = QueryParam.privateKeyCopy(privateLabel: config.privateLabel) 
+                let keyCopyDict: [CFString: Any] = [
+                    kSecClass: kSecClassKey,
+                    kSecAttrApplicationTag: config.privateLabel,
+                    kSecAttrKeyType: kSecAttrKeyTypeEC, //Constants.attrKeyTypeEllipticCurve,
+                    kSecAttrKeyClass: kSecAttrKeyClassPrivate,
+                    kSecAttrAccessible: kSecAttrAccessibleWhenUnlocked,
+                    kSecReturnRef: true,
+                    ]
                 // Now fetch the SecKeyRef version of the key
                 var keyRef: AnyObject? = nil
                 let copyStatus = SecItemCopyMatching(keyCopyDict as CFDictionary, &keyRef)
@@ -405,10 +434,15 @@ public class EllipticCurveKeyPair : NSObject {
             
             // On iOS 10+, we can use SecKeyCreateWithData without going through the keychain
             if #available(iOS 10.0, *), #available(watchOS 3.0, *), #available(tvOS 10.0, *) {
-                let keyDict: [CFString: Any] = QueryParam.publicKeyCreate(publicKeyData: result)
-
+                let sizeInBits = result.count * 8
+                let createParams:[CFString:Any] = [
+                    kSecAttrKeyType: kSecAttrKeyTypeEC, //QueryParam.ECKeyType(),
+                    kSecAttrKeyClass: kSecAttrKeyClassPublic,
+                    kSecAttrKeySizeInBits: NSNumber(value: sizeInBits),
+                    kSecReturnPersistentRef: true
+                ]
                 var error: Unmanaged<CFError>?
-                guard let key = SecKeyCreateWithData(result as CFData, keyDict as CFDictionary, &error) else {
+                guard let key = SecKeyCreateWithData(result as CFData, createParams as CFDictionary, &error) else {
                     let errMsg = "Public key create failed."
                     guard let err = error else {
                         throw Error.inconcistency(message: errMsg)
@@ -423,14 +457,29 @@ public class EllipticCurveKeyPair : NSObject {
             } else {
                 
                 let persistKey = UnsafeMutablePointer<AnyObject?>(mutating: nil)
-                let keyAddDict: [CFString: Any] = QueryParam.publicKeyItemAdd(publicLabel: config.publicLabel, keyData: result)
+                let keyAddDict: [CFString: Any] = [
+                    kSecClass:               kSecClassKey,
+                    kSecAttrApplicationTag:  config.publicLabel,
+                    kSecAttrKeyType:         kSecAttrKeyTypeEC,
+                    kSecValueData:           result,
+                    kSecAttrKeyClass:        kSecAttrKeyClassPublic,
+                    kSecReturnPersistentRef: true,
+                    kSecAttrAccessible:      kSecAttrAccessibleWhenUnlocked
+                ]
                 
                 let addStatus = SecItemAdd(keyAddDict as CFDictionary, persistKey)
                 guard addStatus == errSecSuccess || addStatus == errSecDuplicateItem else {
                     throw Error.osStatus(message: "Public key create failed.", osStatus: addStatus)
                 }
-                let keyCopyDict: [CFString: Any] = QueryParam.publicKeyCopy(publicLabel: config.publicLabel)
-                
+                //let keyCopyDict: [CFString: Any] = QueryParam.publicKeyCopy(publicLabel: config.publicLabel)
+                let keyCopyDict: [CFString: Any] = [
+                    kSecClass: kSecClassKey,
+                    kSecAttrApplicationTag: config.publicLabel,
+                    kSecAttrKeyType: kSecAttrKeyTypeEC,
+                    kSecAttrKeyClass: kSecAttrKeyClassPublic,
+                    kSecAttrAccessible: kSecAttrAccessibleWhenUnlocked,
+                    kSecReturnRef: true,
+                    ]
                 // Now fetch the SecKeyRef version of the key
                 var keyRef: AnyObject? = nil
                 let copyStatus = SecItemCopyMatching(keyCopyDict as CFDictionary, &keyRef)
@@ -485,24 +534,43 @@ public class EllipticCurveKeyPair : NSObject {
         }
         
         public func fetchPublicKey() throws -> PublicKey {
-            let query = QueryParam.publicKeyQuery(labeled: config.publicLabel, 
-                                                  accessGroup: config.publicKeyAccessGroup)
-            let rawKey: SecKey = try self.fetchSecKey(query) 
+            var params: [CFString:Any] = [
+                kSecClass: kSecClassKey,
+                kSecAttrKeyClass: kSecAttrKeyClassPublic,
+                kSecAttrApplicationTag: config.publicLabel,
+                kSecReturnRef: true,
+                ]
+            if let accessGroup = config.publicKeyAccessGroup {
+                params[kSecAttrAccessGroup] = accessGroup
+            }
+            
+            let rawKey: SecKey = try self.fetchSecKey(params)
             return PublicKey(rawKey)
         }
         
         public func fetchPrivateKey(context: LAContext?) throws -> PrivateKey {
-            let query = QueryParam.privateKeyQuery(labeled: config.privateLabel,
-                                              accessGroup: config.privateKeyAccessGroup, 
-                                              prompt: config.operationPrompt,
-                                              context: context)
-            let rawKey: SecKey = try self.fetchSecKey(query) 
+            var params: [CFString:Any] = [
+                kSecClass: kSecClassKey,
+                kSecAttrKeyClass: kSecAttrKeyClassPrivate,
+                kSecAttrApplicationTag: config.privateLabel,
+                kSecReturnRef: true,
+                ]
+            if let accessGroup = config.privateKeyAccessGroup {
+                params[kSecAttrAccessGroup] = accessGroup
+            }
+            if let prompt = config.operationPrompt {
+                params[kSecUseOperationPrompt] = prompt
+            }
+            if let context = context {
+                params[kSecUseAuthenticationContext] = context
+            }
+            let rawKey: SecKey = try self.fetchSecKey(params)
             return PrivateKey( rawKey, context: context)
         }
         
         func fetchSecKey(_ query: [CFString: Any]) throws -> SecKey {
             var raw: CFTypeRef?
-            NSLog(">> SecItemCopyMatching: \(query)")
+            print("\t>> SecItemCopyMatching: \(query)")
             let status = SecItemCopyMatching(query as CFDictionary, &raw)
             guard status == errSecSuccess, let result = raw else {
                 throw Error.osStatus(message: "Could not get key for query: \(query)", osStatus: status)
@@ -521,10 +589,56 @@ public class EllipticCurveKeyPair : NSObject {
                 throw Error.inconcistency(message: "Public key and private key can not have same label")
             }
             let context = context ?? LAContext()
-            let query = try QueryParam.generateKeyPairQuery(config: config, token: config.token, context: context)
+//            let query = try QueryParam.generateKeyPairQuery(config: config, token: config.token, context: context)
+            
+            /* ========= private ========= */
+            var privateKeyParams: [CFString: Any] = [
+                kSecAttrLabel: config.privateLabel,
+                kSecAttrIsPermanent: true,
+                kSecUseAuthenticationUI: kSecUseAuthenticationUIAllow,
+                ]
+            if let privateKeyAccessGroup = config.privateKeyAccessGroup {
+                privateKeyParams[kSecAttrAccessGroup] = privateKeyAccessGroup
+            }
+            
+            privateKeyParams[kSecUseAuthenticationContext] = context
+            
+            // On iOS 11 and lower: access control with empty flags doesn't work
+            if !config.privateKeyAccessControl.flags.isEmpty {
+                privateKeyParams[kSecAttrAccessControl] = try config.privateKeyAccessControl.underlying()
+            } else {
+                privateKeyParams[kSecAttrAccessible] = config.privateKeyAccessControl.protection
+            }
+            
+            /* ========= public ========= */
+            var publicKeyParams: [CFString: Any] = [
+                kSecAttrLabel: config.publicLabel,
+                ]
+            if let publicKeyAccessGroup = config.publicKeyAccessGroup {
+                publicKeyParams[kSecAttrAccessGroup] = publicKeyAccessGroup
+            }
+            
+            // On iOS 11 and lower: access control with empty flags doesn't work
+            if !config.publicKeyAccessControl.flags.isEmpty {
+                publicKeyParams[kSecAttrAccessControl] = try config.publicKeyAccessControl.underlying()
+            } else {
+                publicKeyParams[kSecAttrAccessible] = config.publicKeyAccessControl.protection
+            }
+            
+            /* ========= combined ========= */
+            var params: [CFString: Any] = [
+                kSecAttrKeyType: kSecAttrKeyTypeEC, //Constants.attrKeyTypeEllipticCurve,
+                kSecPrivateKeyAttrs: privateKeyParams,
+                kSecPublicKeyAttrs: publicKeyParams,
+                kSecAttrKeySizeInBits: 256,
+                ]
+            if config.token == .secureEnclave {
+                params[kSecAttrTokenID] = kSecAttrTokenIDSecureEnclave
+            }
+            
             var publicOptional, privateOptional: SecKey?
-            NSLog(">> SecKeyGeneratePair: \(query)")
-            let status = SecKeyGeneratePair(query as CFDictionary, &publicOptional, &privateOptional)
+            print("\t>> SecKeyGeneratePair: \(params)")
+            let status = SecKeyGeneratePair(params as CFDictionary, &publicOptional, &privateOptional)
             guard status == errSecSuccess else {
                 if status == errSecAuthFailed {
                     throw Error.osStatus(message: "Could not generate keypair. Security probably doesn't like the access flags you provided. Specifically if this device doesn't have secure enclave and you pass `.privateKeyUsage`. it will produce this error.", osStatus: status)
@@ -535,6 +649,7 @@ public class EllipticCurveKeyPair : NSObject {
             guard let publicSec = publicOptional, let privateSec = privateOptional else {
                 throw Error.inconcistency(message: "Created private public key pair successfully, but weren't able to retreive it.")
             }
+            
             let publicKey = PublicKey(publicSec)
             let privateKey = PrivateKey(privateSec, context: context)
             try self.forceSaveKey(publicSec, label: config.publicLabel, isPrivate: false)
@@ -544,22 +659,40 @@ public class EllipticCurveKeyPair : NSObject {
         
         
         func deletePublicKey() throws {
-            let query = QueryParam.publicKeyQuery(labeled: config.publicLabel,
-                                                  accessGroup: config.publicKeyAccessGroup) as CFDictionary
-            NSLog(">> SecItemDelete: \(query)")
-            let status = SecItemDelete(query as CFDictionary)
+            var params: [CFString:Any] = [
+                kSecClass: kSecClassKey,
+                kSecAttrKeyClass: kSecAttrKeyClassPublic,
+                kSecAttrApplicationTag: config.publicLabel,
+                kSecReturnRef: true,
+                ]
+            if let accessGroup = config.publicKeyAccessGroup {
+                params[kSecAttrAccessGroup] = accessGroup
+            }
+            print("\t>> SecItemDelete: \(params)")
+            let status = SecItemDelete(params as CFDictionary)
             guard status == errSecSuccess || status == errSecItemNotFound else {
                 throw Error.osStatus(message: "Could not delete public key.", osStatus: status)
             }
         }
         
         func deletePrivateKey() throws {
-            let query = QueryParam.privateKeyQuery(labeled: config.privateLabel,
-                                                   accessGroup: config.privateKeyAccessGroup,
-                                                   prompt: nil,
-                                                   context: nil) as CFDictionary
-            NSLog(">> SecItemDelete: \(query)")
-            let status = SecItemDelete(query as CFDictionary)
+            var params: [CFString:Any] = [
+                kSecClass: kSecClassKey,
+                kSecAttrKeyClass: kSecAttrKeyClassPrivate,
+                kSecAttrApplicationTag: config.privateLabel,
+                kSecReturnRef: true,
+                ]
+            if let accessGroup = config.privateKeyAccessGroup {
+                params[kSecAttrAccessGroup] = accessGroup
+            }
+            if let prompt = config.operationPrompt {
+                params[kSecUseOperationPrompt] = prompt
+            }
+//            if let context = context {
+//                params[kSecUseAuthenticationContext] = context
+//            }
+            print("\t>> SecItemDelete: \(params)")
+            let status = SecItemDelete(params as CFDictionary)
             guard status == errSecSuccess || status == errSecItemNotFound else {
                 throw Error.osStatus(message: "Could not delete private key.", osStatus: status)
             }
@@ -573,18 +706,18 @@ public class EllipticCurveKeyPair : NSObject {
         func forceSaveKey(_ rawKey: SecKey, label: String, isPrivate: Bool ) throws {
             let query: [CFString:Any] = [
                 kSecClass: kSecClassKey,
-                kSecAttrKeyType: Constants.attrKeyTypeEllipticCurve,
+                kSecAttrKeyType: kSecAttrKeyTypeEC, //Constants.attrKeyTypeEllipticCurve,
                 kSecAttrKeyClass: isPrivate ? kSecAttrKeyClassPrivate : kSecAttrKeyClassPublic,
                 kSecAttrApplicationTag: label,
                 kSecValueRef:rawKey,
                 ]
             var raw: CFTypeRef?
-            NSLog(">> SecItemAdd: \(query)")
+            print("\t>> SecItemAdd: \(query)")
             var status = SecItemAdd(query as CFDictionary, &raw)
             if status == errSecDuplicateItem {
-                NSLog(">> SecItemDelete: \(query)")
+                print("\t>> SecItemDelete: \(query)")
                 status = SecItemDelete(query as CFDictionary)
-                NSLog(">> SecItemAdd: \(query)")
+                print("\t>> SecItemAdd: \(query)")
                 status = SecItemAdd(query as CFDictionary, &raw)
             }
             if status == errSecInvalidRecord {
@@ -593,7 +726,7 @@ public class EllipticCurveKeyPair : NSObject {
                 throw Error.osStatus(message: "Could not save key \(label)", osStatus: status)
             }
             if status == errSecSuccess {
-                NSLog(">> SecItemAdd: \(label) add success")
+                print("\t>> SecItemAdd: \(label) add success")
             }
         }
         
@@ -688,206 +821,20 @@ public class EllipticCurveKeyPair : NSObject {
             return data as Data
         }
         
+        private static var logOnceFlag = false
         public static func logToConsoleIfExecutingOnMainThread() {
+            if logOnceFlag { return }
+            logOnceFlag = true
             if Thread.isMainThread {
-                let _ = LogOnce.shouldNotBeMainThread
+                print("[WARNING] \(EllipticCurveKeyPair.self): Decryption and signing should be done off main thread because LocalAuthentication may need the thread to show UI. This message is logged only once.")
             }
         }
-    }
-    
-    private struct LogOnce {
-        static var shouldNotBeMainThread: Void = {
-            print("[WARNING] \(EllipticCurveKeyPair.self): Decryption and signing should be done off main thread because LocalAuthentication may need the thread to show UI. This message is logged only once.")
-        }()
-    }
-    
-    private struct QueryParam {
-        
-        /* Gevin added */
-        static func publicKeyCreate( publicKeyData: Data ) -> [CFString:Any] {
-            let sizeInBits = publicKeyData.count * 8
-            let createParam:[CFString:Any] = [
-                kSecAttrKeyType: QueryParam.ECKeyType(),
-                kSecAttrKeyClass: kSecAttrKeyClassPublic,
-                kSecAttrKeySizeInBits: NSNumber(value: sizeInBits),
-                kSecReturnPersistentRef: true
-            ]
-            return createParam
-        }
-        
-        /* Gevin added */
-        static func privateKeyCreate( privateKeyData: Data ) -> [CFString:Any] {
-            let sizeInBits = privateKeyData.count * 8
-            let createParam:[CFString:Any] = [
-                kSecAttrKeyType: Constants.attrKeyTypeEllipticCurve,
-                kSecAttrKeyClass: kSecAttrKeyClassPrivate,
-                kSecAttrKeySizeInBits: NSNumber(value: sizeInBits),
-                kSecReturnPersistentRef: true
-            ]
-            return createParam
-        }
-        
-        /* Gevin added */
-        static func publicKeyQuery(labeled: String, accessGroup: String?) -> [CFString:Any] {
-            var params: [CFString:Any] = [
-                kSecClass: kSecClassKey,
-                kSecAttrKeyClass: kSecAttrKeyClassPublic,
-                kSecAttrApplicationTag: labeled,
-                kSecReturnRef: true,
-            ]
-            if let accessGroup = accessGroup {
-                params[kSecAttrAccessGroup] = accessGroup
-            }
-            return params
-        }
-        
-        /* Gevin added */
-        static func privateKeyQuery(labeled: String, accessGroup: String?, prompt: String?, context: LAContext?) -> [CFString: Any] {
-            var params: [CFString:Any] = [
-                kSecClass: kSecClassKey,
-                kSecAttrKeyClass: kSecAttrKeyClassPrivate,
-                kSecAttrApplicationTag: labeled,
-                kSecReturnRef: true,
-                ]
-            if let accessGroup = accessGroup {
-                params[kSecAttrAccessGroup] = accessGroup
-            }
-            if let prompt = prompt {
-                params[kSecUseOperationPrompt] = prompt
-            }
-            if let context = context {
-                params[kSecUseAuthenticationContext] = context
-            }
-            return params
-        }
-        
-        /* Gevin added */
-        static func publicKeyCopy( publicLabel: String ) -> [CFString:Any] {
-            let keyCopyDict: [CFString: Any] = [
-                kSecClass: kSecClassKey,
-                kSecAttrApplicationTag: publicLabel,
-                kSecAttrKeyType: Constants.attrKeyTypeEllipticCurve,
-                kSecAttrKeyClass: kSecAttrKeyClassPublic,
-                kSecAttrAccessible: kSecAttrAccessibleWhenUnlocked,
-                kSecReturnRef: true,
-                ]
-            return keyCopyDict
-        }
-        
-        /* Gevin added */
-        static func privateKeyCopy( privateLabel: String ) -> [CFString:Any] {
-            let keyCopyDict: [CFString: Any] = [
-                kSecClass: kSecClassKey,
-                kSecAttrApplicationTag: privateLabel,
-                kSecAttrKeyType: Constants.attrKeyTypeEllipticCurve,
-                kSecAttrKeyClass: kSecAttrKeyClassPrivate,
-                kSecAttrAccessible: kSecAttrAccessibleWhenUnlocked,
-                kSecReturnRef: true,
-                ]
-            return keyCopyDict
-        }
-        
-        /* Gevin added */
-        static func privateKeyItemAdd( privateLabel: String, keyData: Data ) -> [CFString:Any] {
-            let keyAddDict: [CFString: Any] = [
-                kSecClass: kSecClassKey,
-                kSecAttrApplicationTag: privateLabel,
-                kSecAttrKeyType: Constants.attrKeyTypeEllipticCurve,
-                kSecValueData: keyData,
-                kSecAttrKeyClass: kSecAttrKeyClassPrivate,
-                kSecReturnPersistentRef: true,
-                kSecAttrAccessible: kSecAttrAccessibleWhenUnlocked
-            ]
-            return keyAddDict
-        }
-        
-        /* Gevin added */
-        static func publicKeyItemAdd( publicLabel: String, keyData: Data ) -> [CFString:Any] {
-            let keyAddDict: [CFString: Any] = [
-                kSecClass: kSecClassKey,
-                kSecAttrApplicationTag: publicLabel,
-                kSecAttrKeyType: Constants.attrKeyTypeEllipticCurve,
-                kSecValueData: keyData,
-                kSecAttrKeyClass: kSecAttrKeyClassPublic,
-                kSecReturnPersistentRef: true,
-                kSecAttrAccessible: kSecAttrAccessibleWhenUnlocked
-            ]
-            return keyAddDict
-        }
-        
-        static func generateKeyPairQuery(config: Config, token: Token, context: LAContext?) throws -> [CFString:Any] {
-            
-            /* ========= private ========= */
-            var privateKeyParams: [CFString: Any] = [
-                kSecAttrLabel: config.privateLabel,
-                kSecAttrIsPermanent: true,
-                kSecUseAuthenticationUI: kSecUseAuthenticationUIAllow,
-                ]
-            if let privateKeyAccessGroup = config.privateKeyAccessGroup {
-                privateKeyParams[kSecAttrAccessGroup] = privateKeyAccessGroup
-            }
-            if let context = context {
-                privateKeyParams[kSecUseAuthenticationContext] = context
-            }
-            
-            // On iOS 11 and lower: access control with empty flags doesn't work
-            if !config.privateKeyAccessControl.flags.isEmpty {
-                privateKeyParams[kSecAttrAccessControl] = try config.privateKeyAccessControl.underlying()
-            } else {
-                privateKeyParams[kSecAttrAccessible] = config.privateKeyAccessControl.protection
-            }
-            
-            /* ========= public ========= */
-            var publicKeyParams: [CFString: Any] = [
-                kSecAttrLabel: config.publicLabel,
-                ]
-            if let publicKeyAccessGroup = config.publicKeyAccessGroup {
-                publicKeyParams[kSecAttrAccessGroup] = publicKeyAccessGroup
-            }
-            
-            // On iOS 11 and lower: access control with empty flags doesn't work
-            if !config.publicKeyAccessControl.flags.isEmpty {
-                publicKeyParams[kSecAttrAccessControl] = try config.publicKeyAccessControl.underlying()
-            } else {
-                publicKeyParams[kSecAttrAccessible] = config.publicKeyAccessControl.protection
-            }
-            
-            /* ========= combined ========= */
-            var params: [CFString: Any] = [
-                kSecAttrKeyType: Constants.attrKeyTypeEllipticCurve,
-                kSecPrivateKeyAttrs: privateKeyParams,
-                kSecPublicKeyAttrs: publicKeyParams,
-                kSecAttrKeySizeInBits: 256,
-                ]
-            if token == .secureEnclave {
-                params[kSecAttrTokenID] = kSecAttrTokenIDSecureEnclave
-            }
-            return params
-        }
-        
-        static func ECKeyType() -> String {
-            if #available(iOS 10.0, *) {
-                return kSecAttrKeyTypeECSECPrimeRandom as String
-            } else {
-                return kSecAttrKeyTypeEC as String
-            }
-        }
-    }
-    
-    public struct Constants {        
-        public static let noCompression: UInt8 = 4
-        public static let attrKeyTypeEllipticCurve: String = {
-            if #available(iOS 10.0, *) {
-                return kSecAttrKeyTypeECSECPrimeRandom as String
-            } else {
-                return kSecAttrKeyTypeEC as String
-            }
-        }()
     }
     
     public class Key {
         
         public let rawKey: SecKey
+        public var keyType = kSecAttrKeyClassPrivate
         
         internal init(_ underlying: SecKey) {
             self.rawKey = underlying
@@ -930,7 +877,7 @@ public class EllipticCurveKeyPair : NSObject {
                 kSecValueRef as String: rawKey,
                 kSecReturnAttributes as String: true
             ]
-            NSLog("SecItemCopyMatching: \(query)")
+            print("\t>> SecItemCopyMatching: \(query)")
             let status = SecItemCopyMatching(query as CFDictionary, &matchResult)
             guard status == errSecSuccess else {
                 throw Error.osStatus(message: "Could not read attributes for key", osStatus: status)
@@ -943,43 +890,56 @@ public class EllipticCurveKeyPair : NSObject {
         
         
         func exportData() throws -> Data {
-            if #available(iOS 10.0, *) {
-                var error : Unmanaged<CFError>?
-                guard let raw = SecKeyCopyExternalRepresentation(rawKey, &error) else {
-                    throw EllipticCurveKeyPair.Error.fromError(error?.takeRetainedValue(), message: "Tried reading public key bytes.")
-                }
-                return raw as Data
-            }
-            else{
+//            if #available(iOS 10.0, *) {
+//                var error : Unmanaged<CFError>?
+//                guard let raw = SecKeyCopyExternalRepresentation(rawKey, &error) else {
+//                    throw Error.fromError(error?.takeRetainedValue(), message: "Tried reading public key bytes.")
+//                }
+//                return raw as Data
+//            }
+//            else{
+//                let attributes = try self.queryAttributes()
+//                print("\t>> attribute\n \(attributes)")
                 var matchResult: AnyObject? = nil
                 let query: [String:Any] = [
-                    kSecClass as String: kSecClassKey,
+//                    kSecAttrKeyClass as String: self.keyType,
+//                    kSecAttrApplicationTag: labeled,
+//                    kSecClass as String: kSecClassKey,
                     kSecValueRef as String: rawKey,
-                    kSecReturnData as String: true
+                    kSecReturnData as String: true,
+//                    kSecReturnPersistentRef as String: true
                 ]
-                NSLog("SecItemCopyMatching: \(query)")
+                print("\t>> SecItemCopyMatching: \(query)")
                 let status = SecItemCopyMatching(query as CFDictionary, &matchResult)
                 guard status == errSecSuccess else {
                     throw Error.osStatus(message: "Could not generate keypair", osStatus: status)
                 }
+//                if let dict = matchResult as? [String:Any] {
+//                    let value = dict["v_PersistentRef"] as? Data
+//                    return value!
+//                }
                 guard let keyRaw = matchResult as? Data else {
                     throw Error.inconcistency(message: "Tried reading public key bytes. Expected data, but received \(String(describing: matchResult)).")
                 }
                 return keyRaw
-            }
+//            }
         }
     }
     
-    public final class PublicKey: Key {
-
+    public class PublicKey: Key {
+        internal override init(_ secKey: SecKey) {
+            super.init(secKey)
+            self.keyType = kSecAttrKeyClassPublic
+        }
     }
     
-    public final class PrivateKey: Key {
+    public class PrivateKey: Key {
         
         public private(set) var context: LAContext?
         
-        internal init(_ underlying: SecKey, context: LAContext?) {
-            super.init(underlying)
+        internal init(_ secKey: SecKey, context: LAContext?) {
+            super.init(secKey)
+            self.keyType = kSecAttrKeyClassPublic
             self.context = context
         }
         
@@ -1006,14 +966,14 @@ public class EllipticCurveKeyPair : NSObject {
             if flags.contains(.privateKeyUsage) {
                 let flagsWithOnlyPrivateKeyUsage: SecAccessControlCreateFlags = [.privateKeyUsage]
                 guard flags != flagsWithOnlyPrivateKeyUsage else {
-                    throw EllipticCurveKeyPair.Error.inconcistency(message: "Couldn't create access control flag. Keychain chokes if you try to create access control with only [.privateKeyUsage] on devices older than iOS 11 and macOS 10.13.x")
+                    throw Error.inconcistency(message: "Couldn't create access control flag. Keychain chokes if you try to create access control with only [.privateKeyUsage] on devices older than iOS 11 and macOS 10.13.x")
                 }
             }
             
             var error: Unmanaged<CFError>?
             let result = SecAccessControlCreateWithFlags(kCFAllocatorDefault, protection, flags, &error)
             guard let accessControl = result else {
-                throw EllipticCurveKeyPair.Error.fromError(error?.takeRetainedValue(), message: "Tried creating access control object with flags \(flags) and protection \(protection)")
+                throw Error.fromError(error?.takeRetainedValue(), message: "Tried creating access control object with flags \(flags) and protection \(protection)")
             }
             return accessControl
         }

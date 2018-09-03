@@ -29,20 +29,27 @@ import EllipticCurveKeyPair
 class SignatureViewController: UIViewController {
     
     lazy var keypair: EllipticCurveKeyPair = {
-        
-        let publicAccessControl = EllipticCurveKeyPair.AccessControl(protection: kSecAttrAccessibleAlwaysThisDeviceOnly, flags: [])
-        let privateAccessControl = EllipticCurveKeyPair.AccessControl(protection: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly, flags: {
-            return EllipticCurveKeyPair.Device.hasSecureEnclave ? [.userPresence, .privateKeyUsage] : [.userPresence]
-        }())
+        /*
+         //keychain项保护等级列表
+         kSecAttrAccessibleWhenUnlocked                          //keychain项受到保护，只有在设备未被锁定时才可以访问
+         kSecAttrAccessibleAfterFirstUnlock                      //keychain项受到保护，直到设备启动并且用户第一次输入密码
+         kSecAttrAccessibleAlways                                //keychain未受保护，任何时候都可以访问 （Default）
+         kSecAttrAccessibleWhenUnlockedThisDeviceOnly            //keychain项受到保护，只有在设备未被锁定时才可以访问，而且不可以转移到其他设备
+         kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly        //keychain项受到保护，直到设备启动并且用户第一次输入密码，而且不可以转移到其他设备
+         kSecAttrAccessibleAlwaysThisDeviceOnly                  //keychain未受保护，任何时候都可以访问，但是不能转移到其他设备
+         */
         let config = EllipticCurveKeyPair.Config(
             publicLabel: "wacare.sign.public",
             privateLabel: "wacare.sign.private",
             operationPrompt: "Sign transaction",
-            publicKeyAccessControl: publicAccessControl,
-            privateKeyAccessControl: privateAccessControl,
-            token: .secureEnclaveIfAvailable)
+            publicKeyAccessControl: EllipticCurveKeyPair.AccessControl(protection: kSecAttrAccessibleAlways, flags: []),
+            privateKeyAccessControl: EllipticCurveKeyPair.AccessControl(protection: kSecAttrAccessibleAlways, flags: /*EllipticCurveKeyPair.Device.hasSecureEnclave ? [.userPresence, .privateKeyUsage] :*/ [.userPresence] ),
+            token: /*EllipticCurveKeyPair.Device.hasSecureEnclave ? .secureEnclave :*/ .keychain)
         return EllipticCurveKeyPair(config: config)
     }()
+    // #Gevin note:
+    // 在實機執行，access control 必須選 [.userPresence], token 要 .keychain 才行，不然會取不出 key data
+    // 理由還不清楚
     
 //    var context: LAContext! = LAContext()
     
@@ -63,11 +70,11 @@ class SignatureViewController: UIViewController {
             let privateKey = "MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgnszUJEAiYjU0qrbXp8Y/p7OwqC83HXvBTHo7Yluh4i2hRANCAARX48E7Zhef5Y+JGaKmo62MBo1h9Cq0K42BnIwVpcCUJSadVQzuOmxizKutIFx60ubhBi0gA0RGno+U6HpTL1iW"
 
             // import exist key 
-            try keypair.importPrivateKeyB64(privateKey)
-            try keypair.importPublicKeyB64(publicKey)
+//            try keypair.importPrivateKeyB64(privateKey)
+//            try keypair.importPublicKeyB64(publicKey)
             
             // generate key pair
-//            try keypair.generateKeyPair()
+            try keypair.generateKeyPair()
             
             // 輸出 key 
             let privateKeyData = try keypair.privateKeyDER()
