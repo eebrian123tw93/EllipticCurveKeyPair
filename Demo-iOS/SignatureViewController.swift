@@ -72,7 +72,7 @@ class SignatureViewController: UIViewController {
             // 輸出 key 
             let privateKeyData = try keypair.privateKeyDER()
             let publicKeyData = try keypair.publicKeyDER()
-            let private_data: String = try keypair.privateKeyBase64() //GTMBase64.string(byEncoding: privateKeyData)
+            let private_data: String = try keypair.privateKeyBase64()
             let public_data: String = try keypair.publicKeyBase64()
 
             let privateKeyPem = try keypair.privateKeyPEM()
