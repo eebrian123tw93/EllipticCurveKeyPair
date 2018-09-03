@@ -27,8 +27,8 @@ import LocalAuthentication
 import EllipticCurveKeyPair
 
 class EncryptionViewController: UIViewController {
-    lazy var keypair: EllipticCurveKeyPair.Manager = {
-        EllipticCurveKeyPair.logger = { print($0) }
+    lazy var keypair: EllipticCurveKeyPair = {
+        
         let publicAccessControl = EllipticCurveKeyPair.AccessControl(protection: kSecAttrAccessibleAlwaysThisDeviceOnly, flags: [])
         let privateAccessControl = EllipticCurveKeyPair.AccessControl(protection: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly, flags: {
             return EllipticCurveKeyPair.Device.hasSecureEnclave ? [.userPresence, .privateKeyUsage] : [.userPresence]
@@ -40,7 +40,7 @@ class EncryptionViewController: UIViewController {
             publicKeyAccessControl: publicAccessControl,
             privateKeyAccessControl: privateAccessControl,
             token: .secureEnclaveIfAvailable)
-        return EllipticCurveKeyPair.Manager(config: config)
+        return EllipticCurveKeyPair(config: config)
     }()
     
     var context: LAContext! = LAContext()
@@ -161,8 +161,6 @@ class EncryptionViewController: UIViewController {
         } catch {
             self.state = .error(error)
         }
-        
-        
     }
 }
 

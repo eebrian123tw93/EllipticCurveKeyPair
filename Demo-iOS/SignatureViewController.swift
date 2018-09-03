@@ -28,8 +28,8 @@ import EllipticCurveKeyPair
 
 class SignatureViewController: UIViewController {
     
-    lazy var keypair: EllipticCurveKeyPair.Manager = {
-        EllipticCurveKeyPair.logger = { print($0) }
+    lazy var keypair: EllipticCurveKeyPair = {
+        
         let publicAccessControl = EllipticCurveKeyPair.AccessControl(protection: kSecAttrAccessibleAlwaysThisDeviceOnly, flags: [])
         let privateAccessControl = EllipticCurveKeyPair.AccessControl(protection: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly, flags: {
             return EllipticCurveKeyPair.Device.hasSecureEnclave ? [.userPresence, .privateKeyUsage] : [.userPresence]
@@ -41,7 +41,7 @@ class SignatureViewController: UIViewController {
             publicKeyAccessControl: publicAccessControl,
             privateKeyAccessControl: privateAccessControl,
             token: .secureEnclaveIfAvailable)
-        return EllipticCurveKeyPair.Manager(config: config)
+        return EllipticCurveKeyPair(config: config)
     }()
     
 //    var context: LAContext! = LAContext()
@@ -159,7 +159,7 @@ class SignatureViewController: UIViewController {
             print("sign: \(sign_b64)")
             self.signatureTextView.text = sign_b64
             try self.keypair.verifyUsingSha256(signature: signature, originalDigest: digest)
-            let result = try printVerifySignatureInOpenssl(manager: self.keypair, signed: signature, digest: digest, hashAlgorithm: "sha256")
+            let result = try printVerifySignatureInOpenssl(keypair: self.keypair, signed: signature, digest: digest, hashAlgorithm: "sha256")
             self.verifyResultLabel.text = "verify success!\n\(result)"
         } catch {
             print("verify error: \(error)")
