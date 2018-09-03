@@ -1,5 +1,5 @@
 Pod::Spec.new do |s|
-  s.name         = "EllipticCurveKeyPair"
+  s.name         = "EllipticCurveKeyPair_Gevin"
   s.version      = "2.0-beta1"
   s.summary      = "Sign, verify, encrypt and decrypt using the Secure Enclave"
   s.description  = <<-DESC
@@ -13,7 +13,7 @@ Pod::Spec.new do |s|
   }
   s.ios.deployment_target = "9.0"
   s.osx.deployment_target = "10.12.1"
-  s.source       = { :git => "https://github.com/agens-no/EllipticCurveKeyPair.git", :tag => s.version.to_s }
+  s.source       = { :git => "https://github.com/gevin/EllipticCurveKeyPair.git" }
   s.source_files  = "Sources/**/*"
   s.frameworks  = ["Foundation", "LocalAuthentication", "Security"]
 end
