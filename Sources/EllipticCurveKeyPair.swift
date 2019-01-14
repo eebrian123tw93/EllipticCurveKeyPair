@@ -60,13 +60,25 @@ public class EllipticCurveKeyPair : NSObject {
     
     /* Gevin added: */
     public func importPrivateKeyB64(_ privateKeyB64: String ) throws {
-        try self.helper.importKeyBase64(privateKeyB64: privateKeyB64, context: self.context )
+        try self.helper.importPrivateKeyBase64(privateKeyB64, context: self.context )
+        try cachedPrivateKey = self.helper.fetchPrivateKey(context: self.context)
+    }
+    
+    /* Gevin added: */
+    public func importPrivateKeyData(_ privateKeyData: Data ) throws {
+        try self.helper.importPrivateKeyData(privateKeyData, context: self.context )
         try cachedPrivateKey = self.helper.fetchPrivateKey(context: self.context)
     }
     
     /* Gevin added: */
     public func importPublicKeyB64(_ publicKeyB64: String ) throws {
-        try self.helper.importKeyBase64(publicKeyB64: publicKeyB64 )
+        try self.helper.importPublicKeyBase64(publicKeyB64 )
+        try cachedPublicKey = self.helper.fetchPublicKey()
+    }
+    
+    /* Gevin added: */
+    public func importPublicKeyData(_ publicKeyData: Data ) throws {
+        try self.helper.importPublicKeyData(publicKeyData )
         try cachedPublicKey = self.helper.fetchPublicKey()
     }
     
@@ -345,19 +357,25 @@ public class EllipticCurveKeyPair : NSObject {
         // MARK: - SecKey Manage
         
         /* Gevin added */
-        public func importKeyBase64( privateKeyB64: String, context: LAContext? ) throws{
+        public func importPrivateKeyBase64(_ privateKeyB64: String, context: LAContext? ) throws{
+            guard let decodedData = Data.init(base64Encoded: privateKeyB64) else {
+                throw NSError(domain: "Base64DecodeError", code: -1, userInfo: [NSLocalizedDescriptionKey : "import private key, base64 data decode fail."])
+            }
+            try self.importPrivateKeyData(decodedData, context: context)
+        }
+        
+        public func importPrivateKeyData(_ privateKeyData: Data, context: LAContext? ) throws{
 
-            let decodedData = Data.init(base64Encoded: privateKeyB64)
             var result = Data()
             let privateKeyStart = x9_62PrivateECHeader.count
             let privateKeyEnd = x9_62PrivateECHeader.count + 32
             let publicKeyStart = privateKeyEnd + 5
             let publicKeyEnd = publicKeyStart + 65
-            let private_key_data = decodedData?.subdata(in:privateKeyStart..<privateKeyEnd)
+            let private_key_data = privateKeyData.subdata(in:privateKeyStart..<privateKeyEnd)
             
-            let public_key_data = decodedData?.subdata(in:publicKeyStart..<publicKeyEnd)
-            result.append(public_key_data!) 
-            result.append(private_key_data!)
+            let public_key_data = privateKeyData.subdata(in:publicKeyStart..<publicKeyEnd)
+            result.append(public_key_data)
+            result.append(private_key_data)
             
             // On iOS 10+, we can use SecKeyCreateWithData without going through the keychain
             if #available(iOS 10.0, *), #available(watchOS 3.0, *), #available(tvOS 10.0, *) {
@@ -419,18 +437,23 @@ public class EllipticCurveKeyPair : NSObject {
         }
         
         /* Gevin added */
-        public func importKeyBase64( publicKeyB64: String ) throws {
-            
-            let decodedData = Data.init(base64Encoded: publicKeyB64)
-            guard let publicKeyData = decodedData else {
-                throw Error.inconcistency(message: "base64 string decode failed.")
-            } 
+        public func importPublicKeyBase64(_ publicKeyB64: String ) throws {
+            guard let decodedData = Data.init(base64Encoded: publicKeyB64) else {
+                throw NSError(domain: "Base64DecodeError", code: -1, userInfo: [NSLocalizedDescriptionKey : "import public key, base64 data decode fail."])
+            }
+            try self.importPublicKeyData(decodedData)
+        }
+        
+        public func importPublicKeyData(_ publicKeyData: Data ) throws {
+//            guard let publicKeyData = decodedData else {
+//                throw Error.inconcistency(message: "base64 string decode failed.")
+//            }
             
             var result = Data()
             let publicKeyStart = x9_62PublicECHeader.count
             let publicKeyEnd = publicKeyData.count
-            let public_key_data = decodedData?.subdata(in:publicKeyStart..<publicKeyEnd)
-            result.append(public_key_data!) 
+            let public_key_data = publicKeyData.subdata(in:publicKeyStart..<publicKeyEnd)
+            result.append(public_key_data)
             
             // On iOS 10+, we can use SecKeyCreateWithData without going through the keychain
             if #available(iOS 10.0, *), #available(watchOS 3.0, *), #available(tvOS 10.0, *) {
@@ -570,7 +593,7 @@ public class EllipticCurveKeyPair : NSObject {
         
         func fetchSecKey(_ query: [CFString: Any]) throws -> SecKey {
             var raw: CFTypeRef?
-            print("\t>> SecItemCopyMatching: \(query)")
+            print("## fetchSecKey:\n\(query)")
             let status = SecItemCopyMatching(query as CFDictionary, &raw)
             guard status == errSecSuccess, let result = raw else {
                 throw Error.osStatus(message: "Could not get key for query: \(query)", osStatus: status)
@@ -637,7 +660,7 @@ public class EllipticCurveKeyPair : NSObject {
             }
             
             var publicOptional, privateOptional: SecKey?
-            print("\t>> SecKeyGeneratePair: \(params)")
+            print("## generateKeyPair:\n\(params)")
             let status = SecKeyGeneratePair(params as CFDictionary, &publicOptional, &privateOptional)
             guard status == errSecSuccess else {
                 if status == errSecAuthFailed {
@@ -668,7 +691,7 @@ public class EllipticCurveKeyPair : NSObject {
             if let accessGroup = config.publicKeyAccessGroup {
                 params[kSecAttrAccessGroup] = accessGroup
             }
-            print("\t>> SecItemDelete: \(params)")
+            print("## deletePublicKey:\n\(params)")
             let status = SecItemDelete(params as CFDictionary)
             guard status == errSecSuccess || status == errSecItemNotFound else {
                 throw Error.osStatus(message: "Could not delete public key.", osStatus: status)
@@ -691,7 +714,7 @@ public class EllipticCurveKeyPair : NSObject {
 //            if let context = context {
 //                params[kSecUseAuthenticationContext] = context
 //            }
-            print("\t>> SecItemDelete: \(params)")
+            print("## deletePrivateKey:\n\(params)")
             let status = SecItemDelete(params as CFDictionary)
             guard status == errSecSuccess || status == errSecItemNotFound else {
                 throw Error.osStatus(message: "Could not delete private key.", osStatus: status)
@@ -712,12 +735,13 @@ public class EllipticCurveKeyPair : NSObject {
                 kSecValueRef:rawKey,
                 ]
             var raw: CFTypeRef?
-            print("\t>> SecItemAdd: \(query)")
+            print("## SecItemAdd:\n\(query)")
             var status = SecItemAdd(query as CFDictionary, &raw)
             if status == errSecDuplicateItem {
-                print("\t>> SecItemDelete: \(query)")
+                print("## errSecDuplicateItem")
+                //print("## SecItemDelete: \(query)")
                 status = SecItemDelete(query as CFDictionary)
-                print("\t>> SecItemAdd: \(query)")
+                //print("## SecItemAdd: \(query)")
                 status = SecItemAdd(query as CFDictionary, &raw)
             }
             if status == errSecInvalidRecord {
@@ -726,7 +750,7 @@ public class EllipticCurveKeyPair : NSObject {
                 throw Error.osStatus(message: "Could not save key \(label)", osStatus: status)
             }
             if status == errSecSuccess {
-                print("\t>> SecItemAdd: \(label) add success")
+                print("## SecItemAdd: \(label) add success")
             }
         }
         
@@ -877,7 +901,7 @@ public class EllipticCurveKeyPair : NSObject {
                 kSecValueRef as String: rawKey,
                 kSecReturnAttributes as String: true
             ]
-            print("\t>> SecItemCopyMatching: \(query)")
+            //print("## SecItemCopyMatching: \(query)")
             let status = SecItemCopyMatching(query as CFDictionary, &matchResult)
             guard status == errSecSuccess else {
                 throw Error.osStatus(message: "Could not read attributes for key", osStatus: status)
@@ -909,7 +933,7 @@ public class EllipticCurveKeyPair : NSObject {
                     kSecReturnData as String: true,
 //                    kSecReturnPersistentRef as String: true
                 ]
-                print("\t>> SecItemCopyMatching: \(query)")
+            //print("## SecItemCopyMatching: \(query)")
                 let status = SecItemCopyMatching(query as CFDictionary, &matchResult)
                 guard status == errSecSuccess else {
                     throw Error.osStatus(message: "Could not generate keypair", osStatus: status)
