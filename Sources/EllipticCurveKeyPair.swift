@@ -40,7 +40,7 @@ public class EllipticCurveKeyPair : NSObject {
     
     public var context: LAContext = LAContext()
     private let config: Config
-    private let helper: Helper
+    private var helper: Helper
     private var cachedPublicKey: PublicKey? = nil
     private var cachedPrivateKey: PrivateKey? = nil
     
@@ -277,7 +277,7 @@ public class EllipticCurveKeyPair : NSObject {
     // Helper is a stateless class for querying the secure enclave and keychain
     // You may create a small stateful facade around this
     // `Manager` is an example of such an opiniated facade
-    public struct Helper {
+    public class Helper {
         
         
         // The open ssl compatible DER format X.509
@@ -350,9 +350,18 @@ public class EllipticCurveKeyPair : NSObject {
         /* |-> bit headers   */ 0x03, 0x42, 0x00
         ])
         
+        var _publicKeyData: Data = Data()
+        var _privateKeyData: Data = Data()
+
         
         // The user visible label in the device's key chain
         public let config: Config
+        
+        // MARK: - init
+        
+        required init(config: Config) {
+            self.config = config
+        }
         
         // MARK: - SecKey Manage
         
@@ -366,21 +375,115 @@ public class EllipticCurveKeyPair : NSObject {
         
         public func importPrivateKeyData(_ privateKeyData: Data, context: LAContext? ) throws{
 
-            var result = Data()
-            let privateKeyStart = x9_62PrivateECHeader.count
-            let privateKeyEnd = x9_62PrivateECHeader.count + 32
+            self._privateKeyData.removeAll()
+            // offset 0 為 30 sequence 
+            // 81 or 82 用 1 byte or 2 byte 來表示長度, 81 offset +2, 82 offset +3
+            // 若不是 81 或 82 那就直接代表長度，offset +1
+            // x9.62 的 tag, 24 byte
+            // 02 01 00 30 13 06  07 2A 86 48 CE 3D 02 01
+            // 06 08 2A 86 48 CE 3D 03  01 07
+            // 所以開始 3 + 24 或是 2 + 24 取到值為 04
+            // 代表 private key 的開頭
+            // 再加 1 即為 private key 的長度資料
+            // 所以偏移 27 或 28 的值非 81 82 的話，即代表長度
+            // 取得長度後，再往後偏移 5 byte 即為 private key 資料內容的開始
+            // 轉成 byte array
+            let bytes = privateKeyData.withUnsafeBytes {
+                [UInt8](UnsafeBufferPointer(start: $0, count: privateKeyData.count/MemoryLayout<UInt8>.stride))
+            }
+            var offset = 0
+            // Sequence 0X30，
+            if bytes[offset] == 0x30 {
+                offset += 1
+                if bytes[offset] == 0x81 {
+                    offset += 2 // length tag(1) + length value(1) = 2
+                }
+                else if bytes[offset] == 0x82 {
+                    offset += 3 // length tag(1) + length value(2) = 3
+                }
+                else {
+                    offset += 1 // length value(1) = 1
+                }
+            }
+            // 偏移 24 byte, x9.62 的 tag 長度
+            offset += 24
+            
+            // octet string
+            var keyLength: UInt32 = 0
+            if bytes[offset] == 0x04 {
+                offset += 1
+                if bytes[offset] == 0x81 {
+                    keyLength = UInt32( bytes[offset+1] )
+                    offset += 2
+                }
+                else if bytes[offset] == 0x82 {
+                    keyLength = UInt32( bytes[offset] |
+                        bytes[offset+1] << 8 )
+                    offset += 3
+                }
+                else {
+                    keyLength = UInt32( bytes[offset] )
+                    offset += 1
+                }
+            }
+            
+            // sequence 0x30
+            if bytes[offset] == 0x30 {
+                offset += 1
+                if bytes[offset] == 0x81 {
+                    offset += 2
+                }
+                else if bytes[offset] == 0x82 {
+                    offset += 3
+                }
+                else {
+                    offset += 1
+                }
+            }
+            
+            // INTEGER 0x02
+            if bytes[offset] == 0x02 {
+                offset += 3 // tag, length, data， Integer 只有一個長度1 的資料 1， 所以 tag + length + data = 3
+            }
+            
+            // octet string
+            if bytes[offset] == 0x04 {
+                offset += 1
+                if bytes[offset] == 0x81 {
+                    offset += 2
+                }
+                else if bytes[offset] == 0x82 {
+                    offset += 3
+                }
+                else {
+                    offset += 1
+                }
+            }
+            
+            let privateKeyStart = offset
+            let privateKeyEnd = privateKeyStart + 32
+            
+            //let privateKeyStart = x9_62PrivateECHeader.count
+            //let privateKeyEnd = x9_62PrivateECHeader.count + 32
+            let private_key_data = privateKeyData.subdata(in:privateKeyStart..<privateKeyEnd)
+            //# Gevin_Note: 通常 ECC private key 會包含 public key
+            // 但有的 sdk 產出，就會不包含 public key
+            
             let publicKeyStart = privateKeyEnd + 5
             let publicKeyEnd = publicKeyStart + 65
-            let private_key_data = privateKeyData.subdata(in:privateKeyStart..<privateKeyEnd)
-            
-            let public_key_data = privateKeyData.subdata(in:publicKeyStart..<publicKeyEnd)
-            result.append(public_key_data)
-            result.append(private_key_data)
+            if publicKeyEnd <= privateKeyData.count {
+                let public_key_data = privateKeyData.subdata(in:publicKeyStart..<publicKeyEnd)
+                self._privateKeyData.append(public_key_data)
+            } else {
+                self._privateKeyData.append(self._publicKeyData)
+            }
+    
+            self._privateKeyData.append(private_key_data)
             
             // On iOS 10+, we can use SecKeyCreateWithData without going through the keychain
             if #available(iOS 10.0, *), #available(watchOS 3.0, *), #available(tvOS 10.0, *) {
 
-                let sizeInBits = result.count * 8
+                let sizeInBits = self._privateKeyData.count * 8
                 let createParams:[CFString:Any] = [
                     kSecAttrKeyType: kSecAttrKeyTypeEC, //Constants.attrKeyTypeEllipticCurve,
                     kSecAttrKeyClass: kSecAttrKeyClassPrivate,
@@ -388,7 +491,7 @@ public class EllipticCurveKeyPair : NSObject {
                     kSecReturnPersistentRef: true
                 ]
                 var error: Unmanaged<CFError>?
-                guard let key = SecKeyCreateWithData(result as CFData, createParams as CFDictionary, &error) else {
+                guard let key = SecKeyCreateWithData(self._privateKeyData as CFData, createParams as CFDictionary, &error) else {
                     let errMsg = "Private key create failed."
                     guard let err = error else {
                         throw Error.inconcistency(message: errMsg)
@@ -407,7 +510,7 @@ public class EllipticCurveKeyPair : NSObject {
                     kSecClass: kSecClassKey,
                     kSecAttrApplicationTag: config.privateLabel,
                     kSecAttrKeyType: kSecAttrKeyTypeEC,
-                    kSecValueData: result,
+                    kSecValueData: self._privateKeyData,
                     kSecAttrKeyClass: kSecAttrKeyClassPrivate,
                     kSecReturnPersistentRef: true,
                     kSecAttrAccessible: kSecAttrAccessibleWhenUnlocked
@@ -449,15 +552,16 @@ public class EllipticCurveKeyPair : NSObject {
 //                throw Error.inconcistency(message: "base64 string decode failed.")
 //            }
             
-            var result = Data()
+            //var result = Data()
+            self._publicKeyData.removeAll()
             let publicKeyStart = x9_62PublicECHeader.count
             let publicKeyEnd = publicKeyData.count
             let public_key_data = publicKeyData.subdata(in:publicKeyStart..<publicKeyEnd)
-            result.append(public_key_data)
+            self._publicKeyData.append(public_key_data)
             
             // On iOS 10+, we can use SecKeyCreateWithData without going through the keychain
             if #available(iOS 10.0, *), #available(watchOS 3.0, *), #available(tvOS 10.0, *) {
-                let sizeInBits = result.count * 8
+                let sizeInBits = _publicKeyData.count * 8
                 let createParams:[CFString:Any] = [
                     kSecAttrKeyType: kSecAttrKeyTypeEC, //QueryParam.ECKeyType(),
                     kSecAttrKeyClass: kSecAttrKeyClassPublic,
@@ -465,7 +569,7 @@ public class EllipticCurveKeyPair : NSObject {
                     kSecReturnPersistentRef: true
                 ]
                 var error: Unmanaged<CFError>?
-                guard let key = SecKeyCreateWithData(result as CFData, createParams as CFDictionary, &error) else {
+                guard let key = SecKeyCreateWithData(_publicKeyData as CFData, createParams as CFDictionary, &error) else {
                     let errMsg = "Public key create failed."
                     guard let err = error else {
                         throw Error.inconcistency(message: errMsg)
@@ -484,7 +588,7 @@ public class EllipticCurveKeyPair : NSObject {
                     kSecClass:               kSecClassKey,
                     kSecAttrApplicationTag:  config.publicLabel,
                     kSecAttrKeyType:         kSecAttrKeyTypeEC,
-                    kSecValueData:           result,
+                    kSecValueData:           _publicKeyData,
                     kSecAttrKeyClass:        kSecAttrKeyClassPublic,
                     kSecReturnPersistentRef: true,
                     kSecAttrAccessible:      kSecAttrAccessibleWhenUnlocked
