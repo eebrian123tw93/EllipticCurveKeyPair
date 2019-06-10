@@ -375,6 +375,8 @@ public class EllipticCurveKeyPair : NSObject {
         
         public func importPrivateKeyData(_ privateKeyData: Data, context: LAContext? ) throws{
 
+            try self.deletePrivateKey()
+            
             self._privateKeyData.removeAll()
             // offset 0 為 30 sequence 
             // 81 or 82 用 1 byte or 2 byte 來表示長度, 81 offset +2, 82 offset +3
@@ -548,11 +550,9 @@ public class EllipticCurveKeyPair : NSObject {
         }
         
         public func importPublicKeyData(_ publicKeyData: Data ) throws {
-//            guard let publicKeyData = decodedData else {
-//                throw Error.inconcistency(message: "base64 string decode failed.")
-//            }
+
+            try self.deletePublicKey()
             
-            //var result = Data()
             self._publicKeyData.removeAll()
             let publicKeyStart = x9_62PublicECHeader.count
             let publicKeyEnd = publicKeyData.count
@@ -1067,7 +1067,7 @@ public class EllipticCurveKeyPair : NSObject {
         
         internal init(_ secKey: SecKey, context: LAContext?) {
             super.init(secKey)
-            self.keyType = kSecAttrKeyClassPublic
+            self.keyType = kSecAttrKeyClassPrivate
             self.context = context
         }
         
