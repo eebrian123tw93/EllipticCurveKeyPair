@@ -4,6 +4,7 @@ Pod::Spec.new do |s|
   s.summary      = "Sign, verify, encrypt and decrypt using the Secure Enclave"
   s.description  = <<-DESC
     Create and manage an Elliptic Curve Key Pair on the Secure Enclave on iOS or MacOS.
+    Gevin modify to compatible the key genenrate from java back-end.
   DESC
   s.homepage     = "https://github.com/agens-no/EllipticCurveKeyPair"
   s.license      = { :type => "MIT", :file => "LICENSE" }
