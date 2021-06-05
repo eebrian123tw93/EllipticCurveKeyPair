@@ -471,15 +471,15 @@ public class EllipticCurveKeyPair : NSObject {
             //# Gevin_Note: 通常 ECC private key 會包含 public key
             // 但有的 sdk 產出，就會不包含 public key
             
-            let publicKeyStart = privateKeyEnd + 5
-            let publicKeyEnd = publicKeyStart + 65
-            if publicKeyEnd <= privateKeyData.count {
-                let public_key_data = privateKeyData.subdata(in:publicKeyStart..<publicKeyEnd)
-                self._privateKeyData.append(public_key_data)
-            } else {
-                self._privateKeyData.append(self._publicKeyData)
-            }
-    
+//            let publicKeyStart = privateKeyEnd + 5
+//            let publicKeyEnd = publicKeyStart + 65
+//            if publicKeyEnd <= privateKeyData.count {
+//                let public_key_data = privateKeyData.subdata(in:publicKeyStart..<publicKeyEnd)
+//                self._privateKeyData.append(public_key_data)
+//            } else {
+//                self._privateKeyData.append(self._publicKeyData)
+//            }
+            self._privateKeyData.append(self._publicKeyData)
             self._privateKeyData.append(private_key_data)
             
             // On iOS 10+, we can use SecKeyCreateWithData without going through the keychain
